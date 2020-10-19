@@ -25,9 +25,9 @@ func main() {
 func requestHandler(ctx *fasthttp.RequestCtx) {
 	switch string(ctx.Method()) {
 	case "GET":
-		ctx.WriteString("{ data: { rating: [1, 2, 4, 9, 15] } }")
+		ctx.WriteString(`{ "data": { "rating": [1, 2, 4, 9, 15] } }`)
 	case "POST":
-		ctx.WriteString("{}")
+		ctx.WriteString(`{ "data": {} }`)
 	}
 
 	ctx.SetContentType("application/json; charset=utf8")
