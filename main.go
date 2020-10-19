@@ -33,10 +33,10 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
 
 	var response *responseData
-	switch string(ctx.Method()) {
-	case "GET":
+	switch string(ctx.URI().Path()) {
+	case "/get_rating":
 		response = handleGet(ctx)
-	case "POST":
+	case "/post_rating":
 		response = handlePost(ctx)
 	}
 
@@ -82,14 +82,14 @@ type postRatingResData struct {
 	Ok bool `json:"ok"`
 }
 
-type errData struct {
+type responseErrData struct {
 	Code        int    `json:"code,omitempty"`
 	Description string `json:"description,omitempty"`
 }
 
 type responseData struct {
-	Err  *errData    `json:"error,omitempty"`
-	Data interface{} `json:"data,omitempty"`
+	Err  *responseErrData `json:"error,omitempty"`
+	Data interface{}      `json:"data,omitempty"`
 }
 
 func handleGet(ctx *fasthttp.RequestCtx) (response *responseData) {
@@ -98,7 +98,7 @@ func handleGet(ctx *fasthttp.RequestCtx) (response *responseData) {
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
-			Err: &errData{
+			Err: &responseErrData{
 				Code:        1234,
 				Description: "Error occured while unmarshall your json",
 			},
@@ -118,7 +118,7 @@ func handlePost(ctx *fasthttp.RequestCtx) (response *responseData) {
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
-			Err: &errData{
+			Err: &responseErrData{
 				Code:        1234,
 				Description: "Error occured while unmarshall your json",
 			},
@@ -128,13 +128,18 @@ func handlePost(ctx *fasthttp.RequestCtx) (response *responseData) {
 	h := hmac.New(sha256.New, vkSecretKey)
 	h.Write([]byte(reqData.URLParams.Params))
 
-	genSign := base64.StdEncoding.EncodeToString(h.Sum(nil))
+	genSign := base64.RawStdEncoding.EncodeToString(h.Sum(nil))
 	genSign = strings.ReplaceAll(genSign, "+", "-")
 	genSign = strings.ReplaceAll(genSign, "/", "/")
 
-	println(genSign)
-	println(reqData.URLParams.Sign)
-	return nil
+	if genSign != reqData.URLParams.Sign {
+		return &responseData{
+			Err: &responseErrData{
+				Code:        666,
+				Description: "Sign/urlparams is not correct",
+			},
+		}
+	}
 
 	ctx.WriteString(`{ "data": {} }`)
 
