@@ -168,6 +168,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 			},
 		}
 	}
+	println(string(body))
 
 	if !jsoniter.Get(body, "success").ToBool() {
 		return &responseData{
