@@ -155,7 +155,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 
 	postArgs := ctx.PostArgs()
 	postArgs.Set("secret", reCaptchaSecret)
-	postArgs.Set("respone", reqData.ReCaptchaToken)
+	postArgs.Set("response", reqData.ReCaptchaToken)
 	postArgs.Set("remoteip", remoteIP)
 
 	_, body, err := fasthhtpClient.Post(nil, "https://www.google.com/recaptcha/api/siteverify", postArgs)
