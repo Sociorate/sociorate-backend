@@ -139,9 +139,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 
 	genSign := base64.RawStdEncoding.EncodeToString(h.Sum(nil))
 	genSign = strings.ReplaceAll(genSign, "+", "-")
-	genSign = strings.ReplaceAll(genSign, "/", "/")
+	genSign = strings.ReplaceAll(genSign, "/", "_")
 
-	println(genSign, reqData.URLParams.Sign)
 	if genSign != reqData.URLParams.Sign {
 		return &responseData{
 			Err: &responseErrData{
