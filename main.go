@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	jsoniter "github.com/json-iterator/go"
@@ -120,7 +122,9 @@ type postRatingResData struct {
 	Success bool `json:"ok"`
 }
 
-// TODO: кулдаун, проверка на оценивание самого себя
+// TODO: кулдаун (5 оцениваний в час, при этом на разных людей)
+// TODO: проверка таймстемпа у параметров запуска (должно быть в районе 24 часов)
+// TODO: проверка таймпстемпа у рекапчи (должно быть в районе 15 минут)
 func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 	reqData := new(postRatingReqData)
 	err := jsoniter.Unmarshal(ctx.Request.Body(), reqData)
@@ -130,6 +134,26 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 			Err: &responseErrData{
 				Code:        1234,
 				Description: "Error occured while unmarshall your json",
+			},
+		}
+	}
+
+	u, err := url.Parse(reqData.URLParams.Params)
+	if err != nil {
+		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				Code:        1234,
+				Description: "Malformed url params",
+			},
+		}
+	}
+
+	if u.Query().Get("vk_user_id") == strconv.FormatUint(uint64(reqData.UserID), 10) {
+		return &responseData{
+			Err: &responseErrData{
+				Code:        666,
+				Description: "You can't rate yourself",
 			},
 		}
 	}
@@ -168,7 +192,6 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 			},
 		}
 	}
-	println(string(body))
 
 	if !jsoniter.Get(body, "success").ToBool() {
 		return &responseData{
