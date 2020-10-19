@@ -141,6 +141,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 	genSign = strings.ReplaceAll(genSign, "+", "-")
 	genSign = strings.ReplaceAll(genSign, "/", "/")
 
+	println(genSign, reqData.URLParams.Sign)
 	if genSign != reqData.URLParams.Sign {
 		return &responseData{
 			Err: &responseErrData{
