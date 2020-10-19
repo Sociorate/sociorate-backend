@@ -31,5 +31,5 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 	}
 
 	ctx.SetContentType("application/json; charset=utf8")
-	ctx.Response.Header.Set("Access-Control-Allow-Origin", "https://sociorate-backend.herokuapp.com/")
+	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
 }
