@@ -80,7 +80,7 @@ var (
 const createUsersTableSQL = `CREATE TABLE IF NOT EXISTS users (
 	vk_userid INT NOT NULL PRIMARY KEY,
 	ratingCounts integer[5][7],
-	ratingDates date[7]
+	ratingDates date[7],
 );`
 
 func main() {
