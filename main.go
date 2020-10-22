@@ -47,7 +47,7 @@ func init() {
 			FunctionKey:    "function",
 			LineEnding:     zapcore.DefaultLineEnding,
 			EncodeLevel:    zapcore.LowercaseLevelEncoder,
-			EncodeTime:     nil,
+			EncodeTime:     zapcore.TimeEncoderOfLayout(""),
 			EncodeDuration: nil,
 			EncodeCaller:   zapcore.ShortCallerEncoder,
 		},
