@@ -38,8 +38,8 @@ func init() {
 		Development: false,
 		Encoding:    "console",
 		EncoderConfig: zapcore.EncoderConfig{
-			NameKey:        "name",
-			TimeKey:        "time",
+			NameKey: "name",
+			// TimeKey:        "time",
 			LevelKey:       "level",
 			MessageKey:     "message",
 			CallerKey:      "caller",
@@ -165,9 +165,6 @@ type postRatingResData struct {
 	Success bool `json:"ok"`
 }
 
-// TODO: кулдаун (5 оцениваний в час, при этом на разных людей)
-// TODO: проверка таймстемпа у параметров запуска (должно быть в районе 24 часов)
-// TODO: проверка таймпстемпа у рекапчи (должно быть в районе 15 минут)
 func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 	reqData := new(postRatingReqData)
 	err := jsoniter.Unmarshal(ctx.Request.Body(), reqData)
@@ -181,14 +178,35 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 		}
 	}
 
-	println(reqData.URLParams.Params)
-	u, err := url.Parse("https://example.com/?" + reqData.URLParams.Params)
+	u, err := url.Parse("?" + reqData.URLParams.Params)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
 				Code:        1234,
 				Description: "Malformed url params",
+			},
+		}
+	}
+
+	vkTs, err := strconv.ParseInt(u.Query().Get("vk_ts"), 10, 64)
+	if err != nil {
+		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				Code:        666,
+				Description: "Unable to parse vk_user_id form url params",
+			},
+		}
+	}
+
+	tn := time.Now()
+
+	if tn.Sub(time.Unix(vkTs, 0)) > time.Hour*24 {
+		return &responseData{
+			Err: &responseErrData{
+				Code:        666,
+				Description: "Your vk_ts is too little, it was 24 hours ago",
 			},
 		}
 	}
@@ -273,8 +291,6 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 		requesterUser = new(userData)
 		users[requesterUserID] = requesterUser
 	}
-
-	tn := time.Now()
 
 	if tn.Sub(requesterUser.lastTimeRated) < time.Minute {
 		return &responseData{
