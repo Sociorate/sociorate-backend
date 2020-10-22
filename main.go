@@ -164,6 +164,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 
 	requesterUserID64, err := strconv.ParseUint(u.Query().Get("vk_user_id"), 10, 32)
 	if err != nil {
+		println(err.Error())
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
