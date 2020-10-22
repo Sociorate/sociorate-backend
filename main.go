@@ -182,7 +182,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 	}
 
 	println(reqData.URLParams.Params)
-	u, err := url.Parse(reqData.URLParams.Params)
+	u, err := url.Parse("https://example.com/?" + reqData.URLParams.Params)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
