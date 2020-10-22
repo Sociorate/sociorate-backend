@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	jsoniter "github.com/json-iterator/go"
 	"github.com/valyala/fasthttp"
@@ -21,9 +22,14 @@ var (
 	reCaptchaSecret = os.Getenv("RECAPTCHA_SECRET")
 )
 
-type ratingData [5]uint32
+type ratingData [7][5]uint8
 
-var usersRatings = map[uint32]ratingData{}
+type userData struct {
+	rating        ratingData
+	lastTimeRated time.Time
+}
+
+var users = map[uint32]*userData{}
 
 func main() {
 	port := os.Getenv("PORT")
@@ -97,9 +103,16 @@ func handleGetRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 		}
 	}
 
+	rating := ratingData{}
+
+	user := users[reqData.UserID]
+	if user != nil {
+		rating = user.rating
+	}
+
 	return &responseData{
 		Data: &getRatingResData{
-			Rating: usersRatings[reqData.UserID],
+			Rating: rating,
 		},
 	}
 }
@@ -149,7 +162,20 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 		}
 	}
 
-	if u.Query().Get("vk_user_id") == strconv.FormatUint(uint64(reqData.UserID), 10) {
+	requesterUserID64, err := strconv.ParseUint(u.Query().Get("vk_user_id"), 10, 32)
+	if err != nil {
+		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				Code:        666,
+				Description: "Unable to parse vk_user_id form url params",
+			},
+		}
+	}
+
+	requesterUserID := uint32(requesterUserID64)
+
+	if requesterUserID == reqData.UserID {
 		return &responseData{
 			Err: &responseErrData{
 				Code:        666,
@@ -211,9 +237,39 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 		}
 	}
 
-	rating := usersRatings[reqData.UserID]
-	rating[reqData.Rate-1]++
-	usersRatings[reqData.UserID] = rating
+	requesterUser := users[requesterUserID]
+	if requesterUser == nil {
+		requesterUser = new(userData)
+		users[requesterUserID] = requesterUser
+	}
+
+	tn := time.Now()
+
+	if tn.Sub(requesterUser.lastTimeRated) < time.Minute {
+		return &responseData{
+			Err: &responseErrData{
+				Code:        98765,
+				Description: "You can rate only once a minute",
+			},
+		}
+	}
+
+	user := users[reqData.UserID]
+	if user == nil {
+		user = new(userData)
+		users[reqData.UserID] = user
+	}
+
+	wd := tn.Weekday() - 1
+	if wd == -1 {
+		wd = time.Sunday
+	}
+
+	user.rating[wd][reqData.Rate-1]++
+
+	users[reqData.UserID] = user
+
+	requesterUser.lastTimeRated = tn
 
 	return &responseData{
 		Data: &postRatingResData{
