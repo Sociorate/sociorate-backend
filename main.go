@@ -2,16 +2,18 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"fmt"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v4"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
@@ -23,14 +25,22 @@ var (
 	reCaptchaSecret = os.Getenv("RECAPTCHA_SECRET")
 )
 
-type ratingData [7][5]uint8
+type ratingCounts [5]uint32
+
+type ratingDayData struct {
+	date   time.Time
+	counts ratingCounts
+}
 
 type userData struct {
-	rating        ratingData
+	rating        [7]ratingDayData
 	lastTimeRated time.Time
 }
 
-var users = map[uint32]*userData{}
+var (
+	users    = map[uint32]*userData{}
+	usersMux sync.Mutex
+)
 
 func init() {
 	logger, err := zap.Config{
@@ -62,28 +72,38 @@ func init() {
 }
 
 func main() {
+	dbconn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
+	if err != nil {
+		panic(err)
+	}
+	defer dbconn.Close(context.Background())
+
+	dbconn.Exec(context.Background(), `CREATE TABLE IF NOT EXISTS myschema.mytable (i integer);`)
+
 	port := os.Getenv("PORT")
 
 	if port == "" {
 		panic("$PORT must be set")
 	}
 
-	err := fasthttp.ListenAndServe(":"+port, requestHandler)
+	err = fasthttp.ListenAndServe(":"+port, func(ctx *fasthttp.RequestCtx) {
+		requestHandler(ctx, dbconn)
+	})
 	if err != nil {
-		panic(fmt.Errorf("Error in ListenAndServe: %s", err))
+		panic(err)
 	}
 }
 
-func requestHandler(ctx *fasthttp.RequestCtx) {
+func requestHandler(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) {
 	ctx.SetContentType("application/json; charset=utf8")
 	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
 
 	var response *responseData
 	switch string(ctx.URI().Path()) {
 	case "/get_rating":
-		response = handleGetRating(ctx)
+		response = handleGetRating(ctx, dbconn)
 	case "/post_rating":
-		response = handlePostRating(ctx)
+		response = handlePostRating(ctx, dbconn)
 	}
 
 	if response == nil {
@@ -117,10 +137,10 @@ type getRatingReqData struct {
 }
 
 type getRatingResData struct {
-	Rating ratingData `json:"rating"`
+	Rating [7]ratingCounts `json:"rating"`
 }
 
-func handleGetRating(ctx *fasthttp.RequestCtx) (response *responseData) {
+func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *responseData) {
 	reqData := new(getRatingReqData)
 	err := jsoniter.Unmarshal(ctx.Request.Body(), reqData)
 	if err != nil {
@@ -133,16 +153,29 @@ func handleGetRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 		}
 	}
 
-	rating := ratingData{}
+	rating := [7]ratingDayData{}
 
+	usersMux.Lock()
 	user := users[reqData.UserID]
 	if user != nil {
 		rating = user.rating
 	}
+	usersMux.Unlock()
+
+	responseRating := [7]ratingCounts{}
+
+	tn := time.Now()
+	for k, v := range rating {
+		if tn.Sub(v.date) > time.Hour*24*7 {
+			responseRating[k] = ratingCounts{0, 0, 0, 0, 0}
+		} else {
+			responseRating[k] = v.counts
+		}
+	}
 
 	return &responseData{
 		Data: &getRatingResData{
-			Rating: rating,
+			Rating: responseRating,
 		},
 	}
 }
@@ -165,7 +198,7 @@ type postRatingResData struct {
 	Success bool `json:"ok"`
 }
 
-func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
+func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *responseData) {
 	reqData := new(postRatingReqData)
 	err := jsoniter.Unmarshal(ctx.Request.Body(), reqData)
 	if err != nil {
@@ -286,6 +319,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 		}
 	}
 
+	usersMux.Lock()
+
 	requesterUser := users[requesterUserID]
 	if requesterUser == nil {
 		requesterUser = new(userData)
@@ -293,6 +328,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 	}
 
 	if tn.Sub(requesterUser.lastTimeRated) < time.Minute {
+		usersMux.Unlock()
 		return &responseData{
 			Err: &responseErrData{
 				Code:        98765,
@@ -312,11 +348,18 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 		wd = time.Sunday
 	}
 
-	user.rating[wd][reqData.Rate-1]++
-
-	users[reqData.UserID] = user
+	if tn.Sub(user.rating[wd].date) > time.Hour*24*7 {
+		user.rating[wd].date = tn
+		counts := ratingCounts{}
+		counts[reqData.Rate-1]++
+		user.rating[wd].counts = counts
+	} else {
+		user.rating[wd].counts[reqData.Rate-1]++
+	}
 
 	requesterUser.lastTimeRated = tn
+
+	usersMux.Unlock()
 
 	return &responseData{
 		Data: &postRatingResData{
