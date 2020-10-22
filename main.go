@@ -15,6 +15,7 @@ import (
 	jsoniter "github.com/json-iterator/go"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 var (
@@ -30,6 +31,35 @@ type userData struct {
 }
 
 var users = map[uint32]*userData{}
+
+func init() {
+	logger, err := zap.Config{
+		Level:       zap.NewAtomicLevelAt(zap.InfoLevel),
+		Development: false,
+		Encoding:    "console",
+		EncoderConfig: zapcore.EncoderConfig{
+			NameKey:        "name",
+			TimeKey:        "time",
+			LevelKey:       "level",
+			MessageKey:     "message",
+			CallerKey:      "caller",
+			StacktraceKey:  "stacktrace",
+			FunctionKey:    "function",
+			LineEnding:     zapcore.DefaultLineEnding,
+			EncodeLevel:    zapcore.LowercaseLevelEncoder,
+			EncodeTime:     nil,
+			EncodeDuration: nil,
+			EncodeCaller:   zapcore.ShortCallerEncoder,
+		},
+		OutputPaths:      []string{"stdout"},
+		ErrorOutputPaths: []string{"stderr"},
+	}.Build()
+	if err != nil {
+		panic(err)
+	}
+
+	zap.ReplaceGlobals(logger)
+}
 
 func main() {
 	port := os.Getenv("PORT")
@@ -151,6 +181,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 		}
 	}
 
+	println(reqData.URLParams.Params)
 	u, err := url.Parse(reqData.URLParams.Params)
 	if err != nil {
 		zap.L().Error(err.Error())
@@ -164,7 +195,6 @@ func handlePostRating(ctx *fasthttp.RequestCtx) (response *responseData) {
 
 	requesterUserID64, err := strconv.ParseUint(u.Query().Get("vk_user_id"), 10, 32)
 	if err != nil {
-		println(err.Error())
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
