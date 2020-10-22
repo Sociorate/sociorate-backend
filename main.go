@@ -78,9 +78,10 @@ var (
 )
 
 const createUsersTableSQL = `CREATE TABLE IF NOT EXISTS users (
-	vk_userid INTEGER NOT NULL PRIMARY KEY,
-	rating_counts INTEGER[5][7] NOT NULL,
-	rating_dates DATE[7] NOT NULL);`
+	vk_userid INTEGER NOT NULL PRIMARY KEY
+	last_rate_time TIMESTAMP,
+	rating_counts INTEGER[5][7],
+	rating_dates DATE[7]);`
 
 func main() {
 	dbconn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
