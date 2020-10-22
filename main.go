@@ -20,6 +20,12 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// Все env переменные:
+// PORT
+// DATABASE_URL
+// VK_SECRET_KEY
+// RECAPTCHA_SECRET
+
 var (
 	vkSecretKey     = []byte(os.Getenv("VK_SECRET_KEY"))
 	reCaptchaSecret = os.Getenv("RECAPTCHA_SECRET")
@@ -71,6 +77,12 @@ var (
 	usersMux sync.Mutex
 )
 
+const createUsersTableSQL = `CREATE TABLE IF NOT EXISTS users (
+	vk_userid INT NOT NULL PRIMARY KEY,
+	ratingCounts integer[5][7]
+	ratingDates date[7]
+);`
+
 func main() {
 	dbconn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
 	if err != nil {
@@ -78,7 +90,11 @@ func main() {
 	}
 	defer dbconn.Close(context.Background())
 
-	dbconn.Exec(context.Background(), `CREATE TABLE IF NOT EXISTS myschema.mytable (i integer);`)
+	v, err := dbconn.Exec(context.Background(), createUsersTableSQL)
+	zap.S().Info(v)
+	if err != nil {
+		panic(err)
+	}
 
 	port := os.Getenv("PORT")
 
@@ -343,10 +359,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		users[reqData.UserID] = user
 	}
 
-	wd := tn.Weekday() - 1
-	if wd == -1 {
-		wd = time.Sunday
-	}
+	wd := tn.Weekday()
 
 	if tn.Sub(user.rating[wd].date) > time.Hour*24*7 {
 		user.rating[wd].date = tn
