@@ -25,23 +25,6 @@ var (
 	reCaptchaSecret = os.Getenv("RECAPTCHA_SECRET")
 )
 
-type ratingCounts [5]uint32
-
-type ratingDayData struct {
-	date   time.Time
-	counts ratingCounts
-}
-
-type userData struct {
-	rating        [7]ratingDayData
-	lastTimeRated time.Time
-}
-
-var (
-	users    = map[uint32]*userData{}
-	usersMux sync.Mutex
-)
-
 func init() {
 	logger, err := zap.Config{
 		Level:       zap.NewAtomicLevelAt(zap.InfoLevel),
@@ -70,6 +53,23 @@ func init() {
 
 	zap.ReplaceGlobals(logger)
 }
+
+type ratingCounts [5]uint32
+
+type ratingDayData struct {
+	date   time.Time
+	counts ratingCounts
+}
+
+type userData struct {
+	rating        [7]ratingDayData
+	lastTimeRated time.Time
+}
+
+var (
+	users    = map[uint32]*userData{}
+	usersMux sync.Mutex
+)
 
 func main() {
 	dbconn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
