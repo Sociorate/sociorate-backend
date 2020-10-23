@@ -172,7 +172,7 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 		ratingDates  [7]time.Time
 	)
 
-	err = dbconn.QueryRow(ctx, "SELECT ((SELECT COALESCE((SELECT rating_counts FROM users WHERE vk_userid = $1), '{}') AS rating_counts), (SELECT COALESCE((SELECT rating_dates FROM users WHERE vk_userid = $1), '{}') AS rating_dates));", reqData.UserID).Scan(&ratingCounts, &ratingDates)
+	err = dbconn.QueryRow(ctx, "SELECT (SELECT COALESCE((SELECT rating_counts FROM users WHERE vk_userid = $1), '{}') AS rating_counts), (SELECT COALESCE((SELECT rating_dates FROM users WHERE vk_userid = $1), '{}') AS rating_dates);", reqData.UserID).Scan(&ratingCounts, &ratingDates)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
