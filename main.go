@@ -79,9 +79,9 @@ var (
 
 const createUsersTableSQL = `CREATE TABLE IF NOT EXISTS users (
 	vk_userid INTEGER NOT NULL PRIMARY KEY,
-	last_rate_time TIMESTAMP,
-	rating_counts INTEGER[5][7],
-	rating_dates DATE[7]);`
+	last_rate_time TIMESTAMP NOT NULL,
+	rating_counts INTEGER[5][7] NOT NULL,
+	rating_dates DATE[7] NOT NULL);`
 
 func main() {
 	dbconn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
@@ -213,6 +213,11 @@ type postRatingResData struct {
 	Success bool `json:"ok"`
 }
 
+// INSERT INTO users (vk_userid, last_rate_time) VALUES (1, NOW()) ON CONFLICT (vk_userid) DO UPDATE SET last_rate_time = EXCLUDED.last_rate_time;
+// INSERT INTO users (vk_userid, rating_counts, rating_dates) VALUES (1, '{}', '{}') ON CONFLICT (vk_userid) DO UPDATE SET rating_counts = EXCLUDED.rating_counts rating_dates = EXCLUDED.rating_dates;
+// SELECT (NOW() - last_rate_time) > INTERVAL '1 MINUTE' FROM users WHERE vk_userid = 1;
+// SELECT (rating_counts, rating_dates) FROM users WHERE vk_userid = 1;
+
 func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *responseData) {
 	reqData := new(postRatingReqData)
 	err := jsoniter.Unmarshal(ctx.Request.Body(), reqData)
@@ -336,6 +341,14 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 
 	usersMux.Lock()
 
+	var canRate bool
+	err = dbconn.QueryRow(ctx, "SELECT (NOW() - last_rate_time) > INTERVAL '1 MINUTE' FROM users WHERE vk_userid = $1;", requesterUserID).Scan(&canRate)
+	if err != nil {
+		zap.L().Error(err.Error())
+	}
+
+	zap.S().Info(canRate)
+
 	requesterUser := users[requesterUserID]
 	if requesterUser == nil {
 		requesterUser = new(userData)
@@ -370,6 +383,11 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 	}
 
 	requesterUser.lastTimeRated = tn
+
+	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_userid, last_rate_time) VALUES ($1, NOW()) ON CONFLICT (vk_userid) DO UPDATE SET last_rate_time = EXCLUDED.last_rate_time;", requesterUserID)
+	if err != nil {
+		zap.L().Error(err.Error())
+	}
 
 	usersMux.Unlock()
 
