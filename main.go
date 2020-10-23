@@ -68,8 +68,7 @@ type ratingDayData struct {
 }
 
 type userData struct {
-	rating        [7]ratingDayData
-	lastTimeRated time.Time
+	rating [7]ratingDayData
 }
 
 var (
@@ -339,24 +338,20 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		}
 	}
 
-	usersMux.Lock()
-
 	var canRate bool
+
 	err = dbconn.QueryRow(ctx, "SELECT ((NOW() - last_rate_time) > INTERVAL '1 MINUTE') AS can_rate FROM users WHERE vk_userid = $1;", requesterUserID).Scan(&canRate)
 	if err != nil {
 		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				Code:        777,
+				Description: "Internal error",
+			},
+		}
 	}
 
-	zap.S().Info(canRate)
-
-	requesterUser := users[requesterUserID]
-	if requesterUser == nil {
-		requesterUser = new(userData)
-		users[requesterUserID] = requesterUser
-	}
-
-	if tn.Sub(requesterUser.lastTimeRated) < time.Minute {
-		usersMux.Unlock()
+	if !canRate {
 		return &responseData{
 			Err: &responseErrData{
 				Code:        98765,
@@ -364,6 +359,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 			},
 		}
 	}
+
+	usersMux.Lock()
 
 	user := users[reqData.UserID]
 	if user == nil {
@@ -382,14 +379,12 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		user.rating[wd].counts[reqData.Rate-1]++
 	}
 
-	requesterUser.lastTimeRated = tn
+	usersMux.Unlock()
 
 	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_userid, last_rate_time) VALUES ($1, NOW()) ON CONFLICT (vk_userid) DO UPDATE SET last_rate_time = EXCLUDED.last_rate_time;", requesterUserID)
 	if err != nil {
 		zap.L().Error(err.Error())
 	}
-
-	usersMux.Unlock()
 
 	return &responseData{
 		Data: &postRatingResData{
