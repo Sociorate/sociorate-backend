@@ -342,7 +342,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 	usersMux.Lock()
 
 	var canRate bool
-	err = dbconn.QueryRow(ctx, "SELECT (NOW() - last_rate_time) > INTERVAL '1 MINUTE' FROM users WHERE vk_userid = $1;", requesterUserID).Scan(&canRate)
+	err = dbconn.QueryRow(ctx, "SELECT ((NOW() - last_rate_time) > INTERVAL '1 MINUTE') AS can_rate FROM users WHERE vk_userid = $1;", requesterUserID).Scan(&canRate)
 	if err != nil {
 		zap.L().Error(err.Error())
 	}
