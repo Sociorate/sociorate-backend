@@ -60,11 +60,11 @@ func init() {
 	zap.ReplaceGlobals(logger)
 }
 
-type ratingCounts [5]uint32
+type ratingCountsData [5]uint32
 
 type ratingDayData struct {
 	date   time.Time
-	counts ratingCounts
+	counts ratingCountsData
 }
 
 type userData struct {
@@ -151,7 +151,7 @@ type getRatingReqData struct {
 }
 
 type getRatingResData struct {
-	Rating [7]ratingCounts `json:"rating"`
+	Rating [7]ratingCountsData `json:"rating"`
 }
 
 func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *responseData) {
@@ -167,6 +167,25 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 		}
 	}
 
+	var (
+		ratingCounts ratingCountsData
+		ratingDates  [7]time.Time
+	)
+
+	err = dbconn.QueryRow(ctx, "SELECT (rating_counts, rating_dates) FROM users WHERE vk_userid = $1;", reqData.UserID).Scan(&ratingCounts, &ratingDates)
+	if err != nil {
+		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				Code:        777,
+				Description: "Internal error",
+			},
+		}
+	}
+
+	println(ratingCounts)
+	println(ratingDates)
+
 	rating := [7]ratingDayData{}
 
 	usersMux.Lock()
@@ -176,12 +195,12 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 	}
 	usersMux.Unlock()
 
-	responseRating := [7]ratingCounts{}
+	responseRating := [7]ratingCountsData{}
 
 	tn := time.Now()
 	for k, v := range rating {
 		if tn.Sub(v.date) > time.Hour*24*7 {
-			responseRating[k] = ratingCounts{0, 0, 0, 0, 0}
+			responseRating[k] = ratingCountsData{0, 0, 0, 0, 0}
 		} else {
 			responseRating[k] = v.counts
 		}
@@ -258,7 +277,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		return &responseData{
 			Err: &responseErrData{
 				Code:        666,
-				Description: "Your vk_ts is too little, it was 24 hours ago",
+				Description: "Your vk_ts is expired, it was 24 hours ago",
 			},
 		}
 	}
@@ -340,7 +359,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 
 	var canRate bool
 
-	err = dbconn.QueryRow(ctx, "SELECT ((NOW() - last_rate_time) > INTERVAL '1 MINUTE') AS can_rate FROM users WHERE vk_userid = $1;", requesterUserID).Scan(&canRate)
+	err = dbconn.QueryRow(ctx, "SELECT COALESCE((SELECT ((NOW() - last_rate_time) > INTERVAL '1 MINUTE') FROM users WHERE vk_userid = 1), TRUE) AS can_rate;", requesterUserID).Scan(&canRate)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
@@ -372,7 +391,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 
 	if tn.Sub(user.rating[wd].date) > time.Hour*24*7 {
 		user.rating[wd].date = tn
-		counts := ratingCounts{}
+		counts := ratingCountsData{}
 		counts[reqData.Rate-1]++
 		user.rating[wd].counts = counts
 	} else {
