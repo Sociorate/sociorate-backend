@@ -183,8 +183,8 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 		}
 	}
 
-	println(ratingCounts)
-	println(ratingDates)
+	zap.S().Info(ratingCounts)
+	zap.S().Info(ratingDates)
 
 	rating := [7]ratingDayData{}
 
