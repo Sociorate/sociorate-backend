@@ -168,7 +168,7 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 	}
 
 	var (
-		ratingCounts []int32
+		ratingCounts [][]int32
 		ratingDates  []time.Time
 	)
 
