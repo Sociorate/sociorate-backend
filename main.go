@@ -79,7 +79,7 @@ var (
 const createUsersTableSQL = `CREATE TABLE IF NOT EXISTS users (
 	vk_userid INTEGER NOT NULL PRIMARY KEY,
 	last_rate_time TIMESTAMP,
-	rating_counts INTEGER[5][7],
+	rating_counts INTEGER[35],
 	rating_dates DATE[7]);`
 
 func main() {
@@ -168,8 +168,8 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 	}
 
 	var (
-		ratingCountsNoDimensions = make([]uint32, 7*5)
-		ratingDates              = make([]time.Time, 7)
+		ratingCountsNoDimensions []uint32
+		ratingDates              []time.Time
 	)
 
 	err = dbconn.QueryRow(ctx, "SELECT (SELECT COALESCE((SELECT rating_counts FROM users WHERE vk_userid = $1), '{}') AS rating_counts), (SELECT COALESCE((SELECT rating_dates FROM users WHERE vk_userid = $1), '{}') AS rating_dates);", reqData.UserID).Scan(&ratingCountsNoDimensions, &ratingDates)
@@ -183,19 +183,19 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 		}
 	}
 
-	l := len(ratingDates)
-	if l != 7 {
-		if l != 0 {
-			zap.L().Error("`ratingDates` length must be 7")
-		}
+	ratingDatesLen := len(ratingDates)
+	ratingCountsNoDimensionsLen := len(ratingCountsNoDimensions)
 
-		ratingDates = make([]time.Time, 7)
-	}
+	ratingCounts := [7]ratingCountsData{}
 
-	ratingCounts := [7][5]uint32{}
+	tn := time.Now()
 
 	var i int
 	for k1 := 0; k1 < 7; k1++ {
+		if ratingDatesLen < k1 || tn.Sub(ratingDates[k1]) > time.Hour*24*7 || ratingCountsNoDimensionsLen < 5*k1 {
+			continue
+		}
+
 		for k2 := 0; k2 < 5; k2++ {
 			ratingCounts[k1][k2] = ratingCountsNoDimensions[i]
 			i++
@@ -205,29 +205,9 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 	zap.S().Info(ratingCounts)
 	zap.S().Info(ratingDates)
 
-	rating := [7]ratingDayData{}
-
-	usersMux.Lock()
-	user := users[reqData.UserID]
-	if user != nil {
-		rating = user.rating
-	}
-	usersMux.Unlock()
-
-	responseRating := [7]ratingCountsData{}
-
-	tn := time.Now()
-	for k, v := range rating {
-		if tn.Sub(v.date) > time.Hour*24*7 {
-			responseRating[k] = ratingCountsData{0, 0, 0, 0, 0}
-		} else {
-			responseRating[k] = v.counts
-		}
-	}
-
 	return &responseData{
 		Data: &getRatingResData{
-			Rating: responseRating,
+			Rating: ratingCounts,
 		},
 	}
 }
