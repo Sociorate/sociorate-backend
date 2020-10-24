@@ -175,7 +175,7 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 
 	var i int
 	for k1 := 0; k1 < 7; k1++ {
-		zap.S().Info(ratingDatesLen < k1+1)
+		zap.S().Info(tn.Sub(ratingDates[k1]) > time.Hour*24*7, ratingCountsNoDimensionsLen < 5*(k1+1))
 		if ratingDatesLen < k1+1 || tn.Sub(ratingDates[k1]) > time.Hour*24*7 || ratingCountsNoDimensionsLen < 5*(k1+1) {
 			continue
 		}
