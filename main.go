@@ -168,8 +168,8 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 	}
 
 	var (
-		ratingCounts = make([]ratingCountsData, 7)
-		ratingDates  = make([]time.Time, 7)
+		ratingCounts = [][]int32{}
+		ratingDates  = []time.Time{}
 	)
 
 	err = dbconn.QueryRow(ctx, "SELECT (SELECT COALESCE((SELECT rating_counts FROM users WHERE vk_userid = $1), '{}') AS rating_counts), (SELECT COALESCE((SELECT rating_dates FROM users WHERE vk_userid = $1), '{}') AS rating_dates);", reqData.UserID).Scan(&ratingCounts, &ratingDates)
