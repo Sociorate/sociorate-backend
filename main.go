@@ -378,27 +378,43 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		}
 	}
 
-	usersMux.Lock()
+	var (
+		ratingCountsNoDimensions []uint32
+		ratingDates              []time.Time
+	)
 
-	user := users[reqData.UserID]
-	if user == nil {
-		user = new(userData)
-		users[reqData.UserID] = user
+	err = dbconn.QueryRow(ctx, "SELECT (SELECT COALESCE((SELECT rating_counts FROM users WHERE vk_userid = $1), '{}') AS rating_counts), (SELECT COALESCE((SELECT rating_dates FROM users WHERE vk_userid = $1), '{}') AS rating_dates);", reqData.UserID).Scan(&ratingCountsNoDimensions, &ratingDates)
+	if err != nil {
+		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				Code:        777,
+				Description: "Internal error",
+			},
+		}
+	}
+
+	if len(ratingDates) != 7 {
+		ratingDates = make([]time.Time, 7)
+	}
+	if len(ratingCountsNoDimensions) != 7*5 {
+		ratingCountsNoDimensions = make([]uint32, 7*5)
 	}
 
 	wd := tn.Weekday()
+	ratingDates[wd] = tn
+	ratingCountsNoDimensions[uint8(wd)*5+(reqData.Rate-1)]++
 
-	if tn.Sub(user.rating[wd].date) > time.Hour*24*7 {
-		user.rating[wd].date = tn
-		counts := ratingCountsData{}
-		counts[reqData.Rate-1]++
-		user.rating[wd].counts = counts
-	} else {
-		user.rating[wd].counts[reqData.Rate-1]++
+	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_userid, rating_counts, rating_dates) VALUES ($1, $2, $3) ON CONFLICT (vk_userid) DO UPDATE SET rating_counts = EXCLUDED.rating_counts, rating_dates = EXCLUDED.rating_dates;", reqData.UserID, ratingCountsNoDimensions, ratingDates)
+	if err != nil {
+		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				Code:        777,
+				Description: "Internal error",
+			},
+		}
 	}
-
-	usersMux.Unlock()
-
 	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_userid, last_rate_time) VALUES ($1, NOW()) ON CONFLICT (vk_userid) DO UPDATE SET last_rate_time = EXCLUDED.last_rate_time;", requesterUserID)
 	if err != nil {
 		zap.L().Error(err.Error())
