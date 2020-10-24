@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/valyala/fasthttp"
@@ -169,11 +168,11 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 	}
 
 	var (
-		ratingCounts pgtype.Int4Array
-		ratingDates  []time.Time
+		ratingCountsNoDimensions = make([]uint32, 7*5)
+		ratingDates              = make([]time.Time, 7)
 	)
 
-	err = dbconn.QueryRow(ctx, "SELECT (SELECT COALESCE((SELECT rating_counts FROM users WHERE vk_userid = $1), '{}') AS rating_counts), (SELECT COALESCE((SELECT rating_dates FROM users WHERE vk_userid = $1), '{}') AS rating_dates);", reqData.UserID).Scan(&ratingCounts, &ratingDates)
+	err = dbconn.QueryRow(ctx, "SELECT (SELECT COALESCE((SELECT rating_counts FROM users WHERE vk_userid = $1), '{}') AS rating_counts), (SELECT COALESCE((SELECT rating_dates FROM users WHERE vk_userid = $1), '{}') AS rating_dates);", reqData.UserID).Scan(&ratingCountsNoDimensions, &ratingDates)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
@@ -181,6 +180,25 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 				Code:        777,
 				Description: "Internal error",
 			},
+		}
+	}
+
+	l := len(ratingDates)
+	if l != 7 {
+		if l != 0 {
+			zap.L().Error("`ratingDates` length must be 7")
+		}
+
+		ratingDates = make([]time.Time, 7)
+	}
+
+	ratingCounts := [7][5]uint32{}
+
+	var i int
+	for k1 := 0; k1 < 7; k1++ {
+		for k2 := 0; k2 < 5; k2++ {
+			ratingCounts[k1][k2] = ratingCountsNoDimensions[i]
+			i++
 		}
 	}
 
