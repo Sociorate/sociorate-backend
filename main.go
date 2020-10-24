@@ -78,9 +78,9 @@ var (
 
 const createUsersTableSQL = `CREATE TABLE IF NOT EXISTS users (
 	vk_userid INTEGER NOT NULL PRIMARY KEY,
-	last_rate_time TIMESTAMP NOT NULL,
-	rating_counts INTEGER[5][7] NOT NULL,
-	rating_dates DATE[7] NOT NULL);`
+	last_rate_time TIMESTAMP,
+	rating_counts INTEGER[5][7],
+	rating_dates DATE[7]);`
 
 func main() {
 	dbconn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
@@ -168,8 +168,8 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 	}
 
 	var (
-		ratingCounts [7]ratingCountsData
-		ratingDates  [7]time.Time
+		ratingCounts = make([]ratingCountsData, 7)
+		ratingDates  = make([]time.Time, 7)
 	)
 
 	err = dbconn.QueryRow(ctx, "SELECT (SELECT COALESCE((SELECT rating_counts FROM users WHERE vk_userid = $1), '{}') AS rating_counts), (SELECT COALESCE((SELECT rating_dates FROM users WHERE vk_userid = $1), '{}') AS rating_dates);", reqData.UserID).Scan(&ratingCounts, &ratingDates)
