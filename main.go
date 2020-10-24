@@ -10,7 +10,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v4"
@@ -59,22 +58,6 @@ func init() {
 
 	zap.ReplaceGlobals(logger)
 }
-
-type ratingCountsData [5]uint32
-
-type ratingDayData struct {
-	date   time.Time
-	counts ratingCountsData
-}
-
-type userData struct {
-	rating [7]ratingDayData
-}
-
-var (
-	users    = map[uint32]*userData{}
-	usersMux sync.Mutex
-)
 
 const createUsersTableSQL = `CREATE TABLE IF NOT EXISTS users (
 	vk_userid INTEGER NOT NULL PRIMARY KEY,
@@ -151,7 +134,7 @@ type getRatingReqData struct {
 }
 
 type getRatingResData struct {
-	Rating [7]ratingCountsData `json:"rating"`
+	Rating [7][5]uint32 `json:"rating"`
 }
 
 func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *responseData) {
@@ -183,18 +166,16 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 		}
 	}
 
-	zap.S().Info(ratingCountsNoDimensions)
-	zap.S().Info(ratingDates)
-
 	ratingDatesLen := len(ratingDates)
 	ratingCountsNoDimensionsLen := len(ratingCountsNoDimensions)
 
-	ratingCounts := [7]ratingCountsData{}
+	ratingCounts := [7][5]uint32{}
 
 	tn := time.Now()
 
 	var i int
 	for k1 := 0; k1 < 7; k1++ {
+		zap.S().Info(ratingDatesLen < k1+1)
 		if ratingDatesLen < k1+1 || tn.Sub(ratingDates[k1]) > time.Hour*24*7 || ratingCountsNoDimensionsLen < 5*(k1+1) {
 			continue
 		}
