@@ -183,6 +183,9 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 		}
 	}
 
+	zap.S().Info(ratingCountsNoDimensions)
+	zap.S().Info(ratingDates)
+
 	ratingDatesLen := len(ratingDates)
 	ratingCountsNoDimensionsLen := len(ratingCountsNoDimensions)
 
@@ -378,6 +381,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		}
 	}
 
+	// FIXME: этот код будет баговаться при возникновении конкаренси
 	var (
 		ratingCountsNoDimensions []uint32
 		ratingDates              []time.Time
