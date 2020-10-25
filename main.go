@@ -84,14 +84,15 @@ func main() {
 	}
 
 	err = fasthttp.ListenAndServe(":"+port, func(ctx *fasthttp.RequestCtx) {
-		requestHandler(ctx, dbconn)
+		handleRequest(ctx, dbconn)
 	})
+
 	if err != nil {
 		panic(err)
 	}
 }
 
-func requestHandler(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) {
+func handleRequest(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) {
 	ctx.SetContentType("application/json; charset=utf8")
 	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
 
