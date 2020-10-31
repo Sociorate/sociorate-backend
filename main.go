@@ -368,8 +368,18 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		ratingCountColumnName = "rating_count_1"
 	}
 
-	// Декремент `числа оставшихся оцениваний` и инкремент `числа оценивших` в колонке с соответсвующей оценкой
-	_, err = dbconn.Exec(ctx, "UPDATE users SET remaining_user_rates = remaining_user_rates - 1 WHERE vk_user_id = $1; UPDATE users SET "+ratingCountColumnName+" = "+ratingCountColumnName+" + 1 WHERE vk_user_id = $2;", requesterUserID, reqData.UserID)
+	_, err = dbconn.Exec(ctx, "UPDATE users SET "+ratingCountColumnName+" = "+ratingCountColumnName+" + 1 WHERE vk_user_id = $2;", reqData.UserID)
+	if err != nil {
+		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				Code:        777,
+				Description: "Internal error",
+			},
+		}
+	}
+
+	_, err = dbconn.Exec(ctx, "UPDATE users SET remaining_user_rates = remaining_user_rates - 1 WHERE vk_user_id = $1;", requesterUserID)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
