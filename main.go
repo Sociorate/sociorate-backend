@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"net/url"
 	"os"
 	"strconv"
@@ -38,15 +39,15 @@ func init() {
 		EncoderConfig: zapcore.EncoderConfig{
 			NameKey: "name",
 			// TimeKey:        "time",
-			LevelKey:       "level",
-			MessageKey:     "message",
-			CallerKey:      "caller",
-			StacktraceKey:  "stacktrace",
+			LevelKey:   "level",
+			MessageKey: "message",
+			CallerKey:  "caller",
+			// StacktraceKey:  "stacktrace",
 			FunctionKey:    "function",
 			LineEnding:     zapcore.DefaultLineEnding,
 			EncodeLevel:    zapcore.LowercaseLevelEncoder,
 			EncodeTime:     zapcore.TimeEncoderOfLayout(""),
-			EncodeDuration: nil,
+			EncodeDuration: zapcore.NanosDurationEncoder,
 			EncodeCaller:   zapcore.ShortCallerEncoder,
 		},
 		OutputPaths:      []string{"stdout"},
@@ -138,7 +139,7 @@ type getRatingReqData struct {
 }
 
 type getRatingResData struct {
-	RatingCounts [5]int32 `json:"rating_counts"`
+	RatingCounts [5]uint32 `json:"rating_counts"`
 }
 
 func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *responseData) {
@@ -154,10 +155,10 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 		}
 	}
 
-	ratingCounts := [5]int32{}
+	ratingCounts := [5]uint32{}
 
 	err = dbconn.QueryRow(ctx, "SELECT rating_count_5, rating_count_4, rating_count_3, rating_count_2, rating_count_1 FROM users WHERE vk_user_id = $1", reqData.UserID).Scan(&ratingCounts[4], &ratingCounts[3], &ratingCounts[2], &ratingCounts[1], &ratingCounts[0])
-	if err != nil {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
@@ -319,7 +320,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 	)
 
 	err = dbconn.QueryRow(ctx, "SELECT remaining_user_rates, user_rates_restore_time FROM users WHERE vk_user_id = $1;", requesterUserID).Scan(&remainingUserRates, &userRatesRestoreTime)
-	if err != nil {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
