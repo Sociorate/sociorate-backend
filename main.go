@@ -60,10 +60,14 @@ func init() {
 }
 
 const createUsersTableSQL = `CREATE TABLE IF NOT EXISTS users (
-	vk_userid INTEGER NOT NULL PRIMARY KEY,
-	last_rate_time TIMESTAMP,
-	rating_counts INTEGER[35],
-	rating_dates DATE[7]);`
+	vk_user_id INTEGER NOT NULL PRIMARY KEY,
+	remaining_user_rates SMALLINT DEFAULT 9 NOT NULL,
+	user_rates_restore_time TIME DEFAULT NOW() NOT NULL,
+	5_rating_count INTEGER DEFAULT 0 NOT NULL,
+	4_rating_count INTEGER DEFAULT 0 NOT NULL,
+	3_rating_count INTEGER DEFAULT 0 NOT NULL,
+	2_rating_count INTEGER DEFAULT 0 NOT NULL,
+	1_rating_count INTEGER DEFAULT 0 NOT NULL);`
 
 func main() {
 	dbconn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
@@ -135,7 +139,7 @@ type getRatingReqData struct {
 }
 
 type getRatingResData struct {
-	Rating [7][5]uint32 `json:"rating"`
+	Rating [5]int32 `json:"rating"`
 }
 
 func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *responseData) {
@@ -151,12 +155,9 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 		}
 	}
 
-	var (
-		ratingCountsNoDimensions []uint32
-		ratingDates              []time.Time
-	)
+	ratingCounts := [5]int32{}
 
-	err = dbconn.QueryRow(ctx, "SELECT (SELECT COALESCE((SELECT rating_counts FROM users WHERE vk_userid = $1), '{}') AS rating_counts), (SELECT COALESCE((SELECT rating_dates FROM users WHERE vk_userid = $1), '{}') AS rating_dates);", reqData.UserID).Scan(&ratingCountsNoDimensions, &ratingDates)
+	err = dbconn.QueryRow(ctx, "SELECT 5_rating_count, 4_rating_count, 3_rating_count, 2_rating_count, 1_rating_count FROM users WHERE vk_user_id = $1", reqData.UserID).Scan(&ratingCounts[4], &ratingCounts[3], &ratingCounts[2], &ratingCounts[1], &ratingCounts[0])
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
@@ -167,35 +168,11 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 		}
 	}
 
-	ratingDatesLen := len(ratingDates)
-	ratingCountsNoDimensionsLen := len(ratingCountsNoDimensions)
-
-	ratingCounts := [7][5]uint32{}
-
-	tn := time.Now()
-
-	var i int
-	for k1 := 0; k1 < 7; k1++ {
-		if ratingDatesLen < k1+1 || tn.Sub(ratingDates[k1]) > time.Hour*24*7 || ratingCountsNoDimensionsLen < 5*(k1+1) {
-			i += 5
-			continue
-		}
-
-		for k2 := 0; k2 < 5; k2++ {
-			ratingCounts[k1][k2] = ratingCountsNoDimensions[i]
-			i++
-		}
-	}
-
 	return &responseData{
 		Data: &getRatingResData{
 			Rating: ratingCounts,
 		},
 	}
-}
-
-var fasthhtpClient = &fasthttp.Client{
-	NoDefaultUserAgentHeader: true,
 }
 
 type postRatingReqData struct {
@@ -212,10 +189,9 @@ type postRatingResData struct {
 	Success bool `json:"ok"`
 }
 
-// INSERT INTO users (vk_userid, last_rate_time) VALUES (1, NOW()) ON CONFLICT (vk_userid) DO UPDATE SET last_rate_time = EXCLUDED.last_rate_time;
-// INSERT INTO users (vk_userid, rating_counts, rating_dates) VALUES (1, '{}', '{}') ON CONFLICT (vk_userid) DO UPDATE SET rating_counts = EXCLUDED.rating_counts rating_dates = EXCLUDED.rating_dates;
-// SELECT (NOW() - last_rate_time) > INTERVAL '1 MINUTE' FROM users WHERE vk_userid = 1;
-// SELECT (rating_counts, rating_dates) FROM users WHERE vk_userid = 1;
+var fasthhtpClient = &fasthttp.Client{
+	NoDefaultUserAgentHeader: true,
+}
 
 func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *responseData) {
 	reqData := new(postRatingReqData)
@@ -338,9 +314,12 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		}
 	}
 
-	var canRate bool
+	var (
+		remainingUserRates   int16
+		userRatesRestoreTime time.Time
+	)
 
-	err = dbconn.QueryRow(ctx, "SELECT COALESCE((SELECT ((NOW() - last_rate_time) > INTERVAL '1 MINUTE') FROM users WHERE vk_userid = $1), TRUE) AS can_rate;", requesterUserID).Scan(&canRate)
+	err = dbconn.QueryRow(ctx, "SELECT remaining_user_rates, user_rates_restore_time FROM users WHERE vk_user_id = $1;", requesterUserID).Scan(&remainingUserRates, &userRatesRestoreTime)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
@@ -351,22 +330,46 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		}
 	}
 
-	if !canRate {
+	if userRatesRestoreTime.Sub(tn) <= 0 {
+		remainingUserRates = 9
+
+		_, err = dbconn.Exec(ctx, "UPDATE users SET remaining_user_rates = 9, user_rates_restore_time = NOW() + INTERVAL '1 DAY' WHERE vk_user_id = $1;", requesterUserID)
+		if err != nil {
+			zap.L().Error(err.Error())
+			return &responseData{
+				Err: &responseErrData{
+					Code:        777,
+					Description: "Internal error",
+				},
+			}
+		}
+	}
+
+	if remainingUserRates <= 0 {
 		return &responseData{
 			Err: &responseErrData{
 				Code:        98765,
-				Description: "You can rate only once a minute",
+				Description: "You can rate only 9 times per 24 hours",
 			},
 		}
 	}
 
-	// FIXME: этот код будет баговаться при возникновении конкаренси
-	var (
-		ratingCountsNoDimensions []uint32
-		ratingDates              []time.Time
-	)
+	var ratingCountColumnName string
+	switch reqData.Rate {
+	case 5:
+		ratingCountColumnName = "5_rating_count"
+	case 4:
+		ratingCountColumnName = "4_rating_count"
+	case 3:
+		ratingCountColumnName = "3_rating_count"
+	case 2:
+		ratingCountColumnName = "2_rating_count"
+	case 1:
+		ratingCountColumnName = "1_rating_count"
+	}
 
-	err = dbconn.QueryRow(ctx, "SELECT (SELECT COALESCE((SELECT rating_counts FROM users WHERE vk_userid = $1), '{}') AS rating_counts), (SELECT COALESCE((SELECT rating_dates FROM users WHERE vk_userid = $1), '{}') AS rating_dates);", reqData.UserID).Scan(&ratingCountsNoDimensions, &ratingDates)
+	// Декремент `числа оставшихся оцениваний` и инкремент `числа оценивших` в колонке с соответсвующей оценкой
+	_, err = dbconn.Exec(ctx, "UPDATE users SET remaining_user_rates = remaining_user_rates - 1 WHERE vk_user_id = $1; UPDATE users SET "+ratingCountColumnName+" = "+ratingCountColumnName+" + 1 WHERE vk_user_id = $2;", requesterUserID, reqData.UserID)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
@@ -375,32 +378,6 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 				Description: "Internal error",
 			},
 		}
-	}
-
-	if len(ratingDates) != 7 {
-		ratingDates = make([]time.Time, 7)
-	}
-	if len(ratingCountsNoDimensions) != 7*5 {
-		ratingCountsNoDimensions = make([]uint32, 7*5)
-	}
-
-	wd := tn.Weekday()
-	ratingDates[wd] = tn
-	ratingCountsNoDimensions[uint8(wd)*5+(reqData.Rate-1)]++
-
-	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_userid, rating_counts, rating_dates) VALUES ($1, $2, $3) ON CONFLICT (vk_userid) DO UPDATE SET rating_counts = EXCLUDED.rating_counts, rating_dates = EXCLUDED.rating_dates;", reqData.UserID, ratingCountsNoDimensions, ratingDates)
-	if err != nil {
-		zap.L().Error(err.Error())
-		return &responseData{
-			Err: &responseErrData{
-				Code:        777,
-				Description: "Internal error",
-			},
-		}
-	}
-	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_userid, last_rate_time) VALUES ($1, NOW()) ON CONFLICT (vk_userid) DO UPDATE SET last_rate_time = EXCLUDED.last_rate_time;", requesterUserID)
-	if err != nil {
-		zap.L().Error(err.Error())
 	}
 
 	return &responseData{
