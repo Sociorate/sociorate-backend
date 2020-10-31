@@ -63,11 +63,11 @@ const createUsersTableSQL = `CREATE TABLE IF NOT EXISTS users (
     vk_user_id INTEGER NOT NULL PRIMARY KEY,
     remaining_user_rates SMALLINT DEFAULT 9 NOT NULL,
     user_rates_restore_time TIME DEFAULT NOW() NOT NULL,
-    5_rating_count INTEGER DEFAULT 0 NOT NULL,
-    4_rating_count INTEGER DEFAULT 0 NOT NULL,
-    3_rating_count INTEGER DEFAULT 0 NOT NULL,
-    2_rating_count INTEGER DEFAULT 0 NOT NULL,
-    1_rating_count INTEGER DEFAULT 0 NOT NULL);`
+    rating_count_5 INTEGER DEFAULT 0 NOT NULL,
+    rating_count_4 INTEGER DEFAULT 0 NOT NULL,
+    rating_count_3 INTEGER DEFAULT 0 NOT NULL,
+    rating_count_2 INTEGER DEFAULT 0 NOT NULL,
+    rating_count_1 INTEGER DEFAULT 0 NOT NULL);`
 
 func main() {
 	dbconn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
@@ -156,7 +156,7 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 
 	ratingCounts := [5]int32{}
 
-	err = dbconn.QueryRow(ctx, "SELECT 5_rating_count, 4_rating_count, 3_rating_count, 2_rating_count, 1_rating_count FROM users WHERE vk_user_id = $1", reqData.UserID).Scan(&ratingCounts[4], &ratingCounts[3], &ratingCounts[2], &ratingCounts[1], &ratingCounts[0])
+	err = dbconn.QueryRow(ctx, "SELECT rating_count_5, rating_count_4, rating_count_3, rating_count_2, rating_count_1 FROM users WHERE vk_user_id = $1", reqData.UserID).Scan(&ratingCounts[4], &ratingCounts[3], &ratingCounts[2], &ratingCounts[1], &ratingCounts[0])
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
@@ -356,15 +356,15 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 	var ratingCountColumnName string
 	switch reqData.Rate {
 	case 5:
-		ratingCountColumnName = "5_rating_count"
+		ratingCountColumnName = "rating_count_5"
 	case 4:
-		ratingCountColumnName = "4_rating_count"
+		ratingCountColumnName = "rating_count_4"
 	case 3:
-		ratingCountColumnName = "3_rating_count"
+		ratingCountColumnName = "rating_count_3"
 	case 2:
-		ratingCountColumnName = "2_rating_count"
+		ratingCountColumnName = "rating_count_2"
 	case 1:
-		ratingCountColumnName = "1_rating_count"
+		ratingCountColumnName = "rating_count_1"
 	}
 
 	// Декремент `числа оставшихся оцениваний` и инкремент `числа оценивших` в колонке с соответсвующей оценкой
