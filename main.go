@@ -60,14 +60,14 @@ func init() {
 }
 
 const createUsersTableSQL = `CREATE TABLE IF NOT EXISTS users (
-	vk_user_id INTEGER NOT NULL PRIMARY KEY,
-	remaining_user_rates SMALLINT DEFAULT 9 NOT NULL,
-	user_rates_restore_time TIME DEFAULT NOW() NOT NULL,
-	5_rating_count INTEGER DEFAULT 0 NOT NULL,
-	4_rating_count INTEGER DEFAULT 0 NOT NULL,
-	3_rating_count INTEGER DEFAULT 0 NOT NULL,
-	2_rating_count INTEGER DEFAULT 0 NOT NULL,
-	1_rating_count INTEGER DEFAULT 0 NOT NULL);`
+    vk_user_id INTEGER NOT NULL PRIMARY KEY,
+    remaining_user_rates SMALLINT DEFAULT 9 NOT NULL,
+    user_rates_restore_time TIME DEFAULT NOW() NOT NULL,
+    5_rating_count INTEGER DEFAULT 0 NOT NULL,
+    4_rating_count INTEGER DEFAULT 0 NOT NULL,
+    3_rating_count INTEGER DEFAULT 0 NOT NULL,
+    2_rating_count INTEGER DEFAULT 0 NOT NULL,
+    1_rating_count INTEGER DEFAULT 0 NOT NULL);`
 
 func main() {
 	dbconn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
@@ -97,9 +97,6 @@ func main() {
 }
 
 func handleRequest(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) {
-	ctx.SetContentType("application/json; charset=utf8")
-	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
-
 	var response *responseData
 	switch string(ctx.URI().Path()) {
 	case "/get_rating":
@@ -118,6 +115,8 @@ func handleRequest(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) {
 		return
 	}
 
+	ctx.SetContentType("application/json; charset=utf8")
+	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
 	_, err = ctx.Write(resData)
 	if err != nil {
 		zap.L().Error(err.Error())
@@ -139,7 +138,7 @@ type getRatingReqData struct {
 }
 
 type getRatingResData struct {
-	Rating [5]int32 `json:"rating"`
+	RatingCounts [5]int32 `json:"rating_counts"`
 }
 
 func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *responseData) {
@@ -170,7 +169,7 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 
 	return &responseData{
 		Data: &getRatingResData{
-			Rating: ratingCounts,
+			RatingCounts: ratingCounts,
 		},
 	}
 }
