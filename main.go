@@ -368,7 +368,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		ratingCountColumnName = "rating_count_1"
 	}
 
-	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, "+ratingCountColumnName+") VALUES ($1, 1) ON CONFLICT (vk_user_id) DO UPDATE SET "+ratingCountColumnName+" = "+ratingCountColumnName+" + 1;", reqData.UserID)
+	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, "+ratingCountColumnName+") VALUES ($1, 1) ON CONFLICT (vk_user_id) DO UPDATE SET "+ratingCountColumnName+" = (SELECT "+ratingCountColumnName+" FROM users WHERE vk_user_id = $1) + 1;", reqData.UserID)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
@@ -379,7 +379,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		}
 	}
 
-	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, remaining_user_rates) VALUES ($1, 8) ON CONFLICT (vk_user_id) DO UPDATE SET remaining_user_rates = remaining_user_rates - 1;", requesterUserID)
+	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, remaining_user_rates) VALUES ($1, 8) ON CONFLICT (vk_user_id) DO UPDATE SET remaining_user_rates = (SELECT remaining_user_rates FROM users WHERE vk_user_id = $1) - 1;", requesterUserID)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
