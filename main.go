@@ -368,7 +368,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		ratingCountColumnName = "rating_count_1"
 	}
 
-	_, err = dbconn.Exec(ctx, "UPDATE users SET "+ratingCountColumnName+" = "+ratingCountColumnName+" + 1 WHERE vk_user_id = $2;", reqData.UserID)
+	_, err = dbconn.Exec(ctx, "UPDATE users SET "+ratingCountColumnName+" = "+ratingCountColumnName+" + 1 WHERE vk_user_id = $1;", reqData.UserID)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
