@@ -333,7 +333,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 	if userRatesRestoreTime.Sub(tn) <= 0 {
 		remainingUserRates = 9
 
-		_, err = dbconn.Exec(ctx, "UPDATE users SET remaining_user_rates = 9, user_rates_restore_time = NOW() + INTERVAL '1 DAY' WHERE vk_user_id = $1;", requesterUserID)
+		_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, remaining_user_rates, user_rates_restore_time) VALUES ($1, 9, NOW() + INTERVAL '1 DAY') ON CONFLICT (vk_user_id) DO UPDATE SET remaining_user_rates = EXCLUDED.remaining_user_rates, user_rates_restore_time = EXCLUDED.user_rates_restore_time;", requesterUserID)
 		if err != nil {
 			zap.L().Error(err.Error())
 			return &responseData{
@@ -368,7 +368,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		ratingCountColumnName = "rating_count_1"
 	}
 
-	_, err = dbconn.Exec(ctx, "UPDATE users SET "+ratingCountColumnName+" = "+ratingCountColumnName+" + 1 WHERE vk_user_id = $1;", reqData.UserID)
+	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, "+ratingCountColumnName+") VALUES ($1, 1) ON CONFLICT (vk_user_id) DO UPDATE SET "+ratingCountColumnName+" = "+ratingCountColumnName+" + 1;", reqData.UserID)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
@@ -379,7 +379,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		}
 	}
 
-	_, err = dbconn.Exec(ctx, "UPDATE users SET remaining_user_rates = remaining_user_rates - 1 WHERE vk_user_id = $1;", requesterUserID)
+	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, remaining_user_rates) VALUES ($1, 8) ON CONFLICT (vk_user_id) DO UPDATE SET remaining_user_rates = remaining_user_rates - 1;", requesterUserID)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
