@@ -63,7 +63,7 @@ func init() {
 const createUsersTableSQL = `CREATE TABLE IF NOT EXISTS users (
     vk_user_id INTEGER NOT NULL PRIMARY KEY,
     remaining_user_rates SMALLINT DEFAULT 9 NOT NULL,
-    user_rates_restore_time TIME DEFAULT NOW() NOT NULL,
+    user_rates_restore_time TIMESTAMP DEFAULT NOW() NOT NULL,
     rating_count_5 INTEGER DEFAULT 0 NOT NULL,
     rating_count_4 INTEGER DEFAULT 0 NOT NULL,
     rating_count_3 INTEGER DEFAULT 0 NOT NULL,
