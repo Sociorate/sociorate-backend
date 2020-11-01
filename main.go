@@ -71,27 +71,28 @@ const createUsersTableSQL = `CREATE TABLE IF NOT EXISTS users (
     rating_count_1 INTEGER DEFAULT 0 NOT NULL);`
 
 func main() {
-	dbconn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dbconn, err := pgx.Connect(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		panic(err)
 	}
-	defer dbconn.Close(context.Background())
+	defer dbconn.Close(ctx)
 
-	_, err = dbconn.Exec(context.Background(), createUsersTableSQL)
+	_, err = dbconn.Exec(ctx, createUsersTableSQL)
 	if err != nil {
 		panic(err)
 	}
 
-	port := os.Getenv("PORT")
-
-	if port == "" {
-		panic("$PORT must be set")
+	s := &fasthttp.Server{
+		Handler: func(ctx *fasthttp.RequestCtx) {
+			handleRequest(ctx, dbconn)
+		},
+		NoDefaultServerHeader: true,
 	}
 
-	err = fasthttp.ListenAndServe(":"+port, func(ctx *fasthttp.RequestCtx) {
-		handleRequest(ctx, dbconn)
-	})
-
+	err = s.ListenAndServe(":" + os.Getenv("PORT"))
 	if err != nil {
 		panic(err)
 	}
@@ -99,6 +100,7 @@ func main() {
 
 func handleRequest(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) {
 	var response *responseData
+
 	switch string(ctx.URI().Path()) {
 	case "/get_rating":
 		response = handleGetRating(ctx, dbconn)
