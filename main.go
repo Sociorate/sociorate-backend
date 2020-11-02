@@ -92,6 +92,7 @@ func main() {
 		NoDefaultServerHeader: true,
 	}
 
+	zap.L().Info("Listening and serving")
 	err = s.ListenAndServe(":" + os.Getenv("PORT"))
 	if err != nil {
 		panic(err)
@@ -99,6 +100,8 @@ func main() {
 }
 
 func handleRequest(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) {
+	zap.L().Debug(ctx.String())
+
 	var response *responseData
 
 	switch string(ctx.URI().Path()) {
@@ -191,7 +194,7 @@ type postRatingResData struct {
 	Success bool `json:"ok"`
 }
 
-var fasthhtpClient = &fasthttp.Client{
+var fasthttpClient = &fasthttp.Client{
 	NoDefaultUserAgentHeader: true,
 }
 
@@ -287,7 +290,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 	postArgs.Set("response", reqData.ReCaptchaToken)
 	postArgs.Set("remoteip", remoteIP)
 
-	_, body, err := fasthhtpClient.Post(nil, "https://www.google.com/recaptcha/api/siteverify", postArgs)
+	_, body, err := fasthttpClient.Post(nil, "https://www.google.com/recaptcha/api/siteverify", postArgs)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{

@@ -1,0 +1,37 @@
+version: "3"
+
+networks:
+  main-net:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.16.123.0/8
+
+services:
+  db:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    networks:
+      main-net:
+        ipv4_address: 172.16.123.2
+
+  web:
+    build: .
+    restart: always
+    environment:
+      PORT: 8080
+      RECAPTCHA_SECRET: ${RECAPTCHA_SECRET}
+      VK_SECRET_KEY: ${VK_SECRET_KEY}
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@172.16.123.2:5432/${POSTGRES_DB}
+    networks:
+      main-net:
+        ipv4_address: 172.16.123.3
+    ports:
+      - 8080:8080
