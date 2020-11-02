@@ -71,6 +71,8 @@ const createUsersTableSQL = `CREATE TABLE IF NOT EXISTS users (
     rating_count_1 INTEGER DEFAULT 0 NOT NULL);`
 
 func main() {
+	zap.L().Info("Starting...")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -93,6 +95,7 @@ func main() {
 	}
 
 	zap.L().Info("Listening and serving")
+
 	err = s.ListenAndServe(":" + os.Getenv("PORT"))
 	if err != nil {
 		panic(err)
