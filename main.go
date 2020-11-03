@@ -103,7 +103,7 @@ func main() {
 }
 
 func handleRequest(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) {
-	zap.L().Debug(ctx.String())
+	zap.L().Info(ctx.String())
 
 	var response *responseData
 
