@@ -143,7 +143,7 @@ type responseData struct {
 }
 
 type getRatingReqData struct {
-	UserID uint32 `json:"userid"`
+	VKUserID uint32 `json:"vk_user_id"`
 }
 
 type getRatingResData struct {
@@ -165,7 +165,7 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 
 	ratingCounts := [5]uint32{}
 
-	err = dbconn.QueryRow(ctx, "SELECT rating_count_5, rating_count_4, rating_count_3, rating_count_2, rating_count_1 FROM users WHERE vk_user_id = $1", reqData.UserID).Scan(&ratingCounts[4], &ratingCounts[3], &ratingCounts[2], &ratingCounts[1], &ratingCounts[0])
+	err = dbconn.QueryRow(ctx, "SELECT rating_count_5, rating_count_4, rating_count_3, rating_count_2, rating_count_1 FROM users WHERE vk_user_id = $1", reqData.VKUserID).Scan(&ratingCounts[4], &ratingCounts[3], &ratingCounts[2], &ratingCounts[1], &ratingCounts[0])
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		zap.L().Error(err.Error())
 		return &responseData{
@@ -184,7 +184,7 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 }
 
 type postRatingReqData struct {
-	UserID         uint32 `json:"userid"`
+	VKUserID       uint32 `json:"vk_user_id"`
 	Rate           uint8  `json:"rate"`
 	ReCaptchaToken string `json:"recaptcha_token"`
 	URLParams      struct {
@@ -247,7 +247,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		}
 	}
 
-	requesterUserID64, err := strconv.ParseUint(u.Query().Get("vk_user_id"), 10, 32)
+	requesterVKUserID64, err := strconv.ParseUint(u.Query().Get("vk_user_id"), 10, 32)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
@@ -258,9 +258,9 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		}
 	}
 
-	requesterUserID := uint32(requesterUserID64)
+	requesterVKUserID := uint32(requesterVKUserID64)
 
-	if requesterUserID == reqData.UserID {
+	if requesterVKUserID == reqData.VKUserID {
 		return &responseData{
 			Err: &responseErrData{
 				Code:        666,
@@ -327,7 +327,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		userRatesRestoreTime time.Time
 	)
 
-	err = dbconn.QueryRow(ctx, "SELECT remaining_user_rates, user_rates_restore_time FROM users WHERE vk_user_id = $1;", requesterUserID).Scan(&remainingUserRates, &userRatesRestoreTime)
+	err = dbconn.QueryRow(ctx, "SELECT remaining_user_rates, user_rates_restore_time FROM users WHERE vk_user_id = $1;", requesterVKUserID).Scan(&remainingUserRates, &userRatesRestoreTime)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		zap.L().Error(err.Error())
 		return &responseData{
@@ -341,7 +341,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 	if userRatesRestoreTime.Sub(tn) <= 0 {
 		remainingUserRates = 9
 
-		_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, remaining_user_rates, user_rates_restore_time) VALUES ($1, 9, NOW() + INTERVAL '1 DAY') ON CONFLICT (vk_user_id) DO UPDATE SET remaining_user_rates = EXCLUDED.remaining_user_rates, user_rates_restore_time = EXCLUDED.user_rates_restore_time;", requesterUserID)
+		_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, remaining_user_rates, user_rates_restore_time) VALUES ($1, 9, NOW() + INTERVAL '1 DAY') ON CONFLICT (vk_user_id) DO UPDATE SET remaining_user_rates = EXCLUDED.remaining_user_rates, user_rates_restore_time = EXCLUDED.user_rates_restore_time;", requesterVKUserID)
 		if err != nil {
 			zap.L().Error(err.Error())
 			return &responseData{
@@ -376,7 +376,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		ratingCountColumnName = "rating_count_1"
 	}
 
-	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, "+ratingCountColumnName+") VALUES ($1, 1) ON CONFLICT (vk_user_id) DO UPDATE SET "+ratingCountColumnName+" = (SELECT "+ratingCountColumnName+" FROM users WHERE vk_user_id = $1) + 1;", reqData.UserID)
+	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, "+ratingCountColumnName+") VALUES ($1, 1) ON CONFLICT (vk_user_id) DO UPDATE SET "+ratingCountColumnName+" = (SELECT "+ratingCountColumnName+" FROM users WHERE vk_user_id = $1) + 1;", reqData.VKUserID)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
@@ -387,7 +387,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		}
 	}
 
-	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, remaining_user_rates) VALUES ($1, 8) ON CONFLICT (vk_user_id) DO UPDATE SET remaining_user_rates = (SELECT remaining_user_rates FROM users WHERE vk_user_id = $1) - 1;", requesterUserID)
+	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, remaining_user_rates) VALUES ($1, 8) ON CONFLICT (vk_user_id) DO UPDATE SET remaining_user_rates = (SELECT remaining_user_rates FROM users WHERE vk_user_id = $1) - 1;", requesterVKUserID)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
