@@ -16,3 +16,6 @@
 
 /.env
 /pgdata
+
+/cert.pem
+/key.pem

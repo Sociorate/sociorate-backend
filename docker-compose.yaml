@@ -27,7 +27,7 @@ services:
     depends_on:
       - db
     environment:
-      PORT: 8080
+      PORT: 443
       RECAPTCHA_SECRET: ${RECAPTCHA_SECRET}
       VK_SECRET_KEY: ${VK_SECRET_KEY}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@172.16.238.11:5432/${POSTGRES_DB}
@@ -35,4 +35,4 @@ services:
       main-net:
         ipv4_address: 172.16.238.12
     ports:
-      - 8080:8080
+      - 443:443

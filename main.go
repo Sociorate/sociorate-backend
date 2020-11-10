@@ -96,7 +96,7 @@ func main() {
 
 	zap.L().Info("Listening and serving")
 
-	err = s.ListenAndServe(":" + os.Getenv("PORT"))
+	err = s.ListenAndServeTLS(":"+os.Getenv("PORT"), "cert.pem", "key.pem")
 	if err != nil {
 		panic(err)
 	}
