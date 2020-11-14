@@ -60,15 +60,24 @@ func init() {
 	zap.ReplaceGlobals(logger)
 }
 
-const createUsersTableSQL = `CREATE TABLE IF NOT EXISTS users (
-    vk_user_id INTEGER NOT NULL PRIMARY KEY,
+const sqlCreateTableUsers = `CREATE TABLE IF NOT EXISTS users (
+    vk_user_id INTEGER UNIQUE NOT NULL PRIMARY KEY,
     remaining_user_rates SMALLINT DEFAULT 9 NOT NULL,
     user_rates_restore_time TIMESTAMP DEFAULT NOW() NOT NULL,
     rating_count_5 INTEGER DEFAULT 0 NOT NULL,
     rating_count_4 INTEGER DEFAULT 0 NOT NULL,
     rating_count_3 INTEGER DEFAULT 0 NOT NULL,
     rating_count_2 INTEGER DEFAULT 0 NOT NULL,
-    rating_count_1 INTEGER DEFAULT 0 NOT NULL);`
+	rating_count_1 INTEGER DEFAULT 0 NOT NULL
+);`
+
+const sqlCreateTableUserRatesTimes = `CREATE TABLE IF NOT EXISTS user_rates_times (
+    vk_user_id INTEGER NOT NULL,
+	target_vk_user_id INTEGER NOT NULL,
+	remaining_user_target_rates INTEGER DEFAULT 2 NOT NULL,
+	user_target_rates_restore_time TIMESTAMP DEFAULT NOW() NOT NULL,
+	PRIMARY KEY (vk_user_id, target_vk_user_id)
+);`
 
 func main() {
 	zap.L().Info("Starting...")
@@ -82,7 +91,11 @@ func main() {
 	}
 	defer dbconn.Close(ctx)
 
-	_, err = dbconn.Exec(ctx, createUsersTableSQL)
+	_, err = dbconn.Exec(ctx, sqlCreateTableUsers)
+	if err != nil {
+		panic(err)
+	}
+	_, err = dbconn.Exec(ctx, sqlCreateTableUserRatesTimes)
 	if err != nil {
 		panic(err)
 	}
@@ -362,6 +375,46 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		}
 	}
 
+	var (
+		remainingUserTargetRates   int16
+		userTargetRatesRestoreTime time.Time
+	)
+
+	err = dbconn.QueryRow(ctx, "SELECT remaining_user_target_rates, user_target_rates_restore_time FROM user_rates_times WHERE (vk_user_id = $1 AND target_vk_user_id = $2);", requesterVKUserID, reqData.VKUserID).Scan(&remainingUserTargetRates, &userTargetRatesRestoreTime)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				Code:        777,
+				Description: "Internal error",
+			},
+		}
+	}
+
+	if userTargetRatesRestoreTime.Sub(tn) <= 0 {
+		remainingUserTargetRates = 2
+
+		_, err = dbconn.Exec(ctx, "INSERT INTO user_rates_times (vk_user_id, target_vk_user_id, remaining_user_target_rates, user_target_rates_restore_time) VALUES ($1, $2, 2, NOW() + INTERVAL '1 DAY') ON CONFLICT (vk_user_id, target_vk_user_id) DO UPDATE SET remaining_user_target_rates = EXCLUDED.remaining_user_target_rates, user_target_rates_restore_time = EXCLUDED.user_target_rates_restore_time;", requesterVKUserID, reqData.VKUserID)
+		if err != nil {
+			zap.L().Error(err.Error())
+			return &responseData{
+				Err: &responseErrData{
+					Code:        777,
+					Description: "Internal error",
+				},
+			}
+		}
+	}
+
+	if remainingUserTargetRates <= 0 {
+		return &responseData{
+			Err: &responseErrData{
+				Code:        4321,
+				Description: "You can rate one user only 2 times per 24 hours",
+			},
+		}
+	}
+
 	var ratingCountColumnName string
 	switch reqData.Rate {
 	case 5:
@@ -388,6 +441,17 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 	}
 
 	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, remaining_user_rates) VALUES ($1, 8) ON CONFLICT (vk_user_id) DO UPDATE SET remaining_user_rates = (SELECT remaining_user_rates FROM users WHERE vk_user_id = $1) - 1;", requesterVKUserID)
+	if err != nil {
+		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				Code:        777,
+				Description: "Internal error",
+			},
+		}
+	}
+
+	_, err = dbconn.Exec(ctx, "INSERT INTO user_rates_times (vk_user_id, target_vk_user_id, remaining_user_target_rates) VALUES ($1, $2, 1) ON CONFLICT (vk_user_id, target_vk_user_id) DO UPDATE SET remaining_user_target_rates = (SELECT remaining_user_target_rates FROM user_rates_times WHERE (vk_user_id = $1 AND target_vk_user_id = $2)) - 1;", requesterVKUserID, reqData.VKUserID)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
