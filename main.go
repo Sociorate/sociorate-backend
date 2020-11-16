@@ -445,6 +445,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 
 type vkUsersGetReqData struct {
 	UserIDs   string `json:"user_ids"`
+	Lang      string `json:"lang"`
 	URLParams struct {
 		Params string `json:"params"`
 		Sign   string `json:"sign"`
@@ -513,7 +514,7 @@ func handleVKUsersGet(ctx *fasthttp.RequestCtx) (response *responseData) {
 		}
 	}
 
-	_, body, err := fasthttpClient.Get(nil, "https://api.vk.com/method/users.get?v=5.126&access_token="+vkServiceKey+"&user_ids="+url.QueryEscape(reqData.UserIDs)+"&fields=photo_200,screen_name")
+	_, body, err := fasthttpClient.Get(nil, "https://api.vk.com/method/users.get?v=5.126&access_token="+vkServiceKey+"&lang="+url.QueryEscape(reqData.Lang)+"&user_ids="+url.QueryEscape(reqData.UserIDs)+"&fields=photo_200,screen_name")
 
 	if err != nil {
 		zap.L().Error(err.Error())
