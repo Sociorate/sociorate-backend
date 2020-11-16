@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -24,12 +23,16 @@ import (
 // PORT
 // DATABASE_URL
 // VK_SECRET_KEY
-// RECAPTCHA_SECRET
+// VK_SERVICE_KEY
 
 var (
-	vkSecretKey     = []byte(os.Getenv("VK_SECRET_KEY"))
-	reCaptchaSecret = os.Getenv("RECAPTCHA_SECRET")
+	vkSecretKey  = []byte(os.Getenv("VK_SECRET_KEY"))
+	vkServiceKey = os.Getenv("VK_SERVICE_KEY")
 )
+
+var fasthttpClient = &fasthttp.Client{
+	NoDefaultUserAgentHeader: true,
+}
 
 func init() {
 	logger, err := zap.Config{
@@ -118,6 +121,8 @@ func main() {
 func handleRequest(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) {
 	zap.L().Info(ctx.String())
 
+	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
+
 	var response *responseData
 
 	switch string(ctx.URI().Path()) {
@@ -125,11 +130,15 @@ func handleRequest(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) {
 		response = handleGetRating(ctx, dbconn)
 	case "/post_rating":
 		response = handlePostRating(ctx, dbconn)
+	case "/vk_users_get":
+		response = handleVKUsersGet(ctx)
 	}
 
 	if response == nil {
 		return
 	}
+
+	ctx.SetContentType("application/json; charset=utf8")
 
 	resData, err := jsoniter.Marshal(response)
 	if err != nil {
@@ -137,8 +146,6 @@ func handleRequest(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) {
 		return
 	}
 
-	ctx.SetContentType("application/json; charset=utf8")
-	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
 	_, err = ctx.Write(resData)
 	if err != nil {
 		zap.L().Error(err.Error())
@@ -146,13 +153,13 @@ func handleRequest(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) {
 }
 
 type responseErrData struct {
-	Code        int    `json:"code,omitempty"`
-	Description string `json:"description,omitempty"`
+	ErrorCode int    `json:"error_code,omitempty"`
+	ErrorMsg  string `json:"error_msg,omitempty"`
 }
 
 type responseData struct {
-	Err  *responseErrData `json:"error,omitempty"`
-	Data interface{}      `json:"data,omitempty"`
+	Err      *responseErrData `json:"error,omitempty"`
+	Response interface{}      `json:"response,omitempty"`
 }
 
 type getRatingReqData struct {
@@ -170,8 +177,8 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
-				Code:        1234,
-				Description: "Error occured while unmarshall your json",
+				ErrorCode: 1234,
+				ErrorMsg:  "Error occured while unmarshall your json",
 			},
 		}
 	}
@@ -183,24 +190,23 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
-				Code:        777,
-				Description: "Internal error",
+				ErrorCode: 777,
+				ErrorMsg:  "Internal error",
 			},
 		}
 	}
 
 	return &responseData{
-		Data: &getRatingResData{
+		Response: &getRatingResData{
 			RatingCounts: ratingCounts,
 		},
 	}
 }
 
 type postRatingReqData struct {
-	VKUserID       uint32 `json:"vk_user_id"`
-	Rate           uint8  `json:"rate"`
-	ReCaptchaToken string `json:"recaptcha_token"`
-	URLParams      struct {
+	VKUserID  uint32 `json:"vk_user_id"`
+	Rate      uint8  `json:"rate"`
+	URLParams struct {
 		Params string `json:"params"`
 		Sign   string `json:"sign"`
 	} `json:"url_params"`
@@ -210,10 +216,6 @@ type postRatingResData struct {
 	Success bool `json:"ok"`
 }
 
-var fasthttpClient = &fasthttp.Client{
-	NoDefaultUserAgentHeader: true,
-}
-
 func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *responseData) {
 	reqData := new(postRatingReqData)
 	err := jsoniter.Unmarshal(ctx.Request.Body(), reqData)
@@ -221,8 +223,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
-				Code:        1234,
-				Description: "Error occured while unmarshall your json",
+				ErrorCode: 1234,
+				ErrorMsg:  "Error occured while unmarshall your json",
 			},
 		}
 	}
@@ -232,8 +234,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
-				Code:        1234,
-				Description: "Malformed url params",
+				ErrorCode: 1234,
+				ErrorMsg:  "Malformed url params",
 			},
 		}
 	}
@@ -243,8 +245,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
-				Code:        666,
-				Description: "Unable to parse vk_user_id form url params",
+				ErrorCode: 666,
+				ErrorMsg:  "Unable to parse vk_user_id form url params",
 			},
 		}
 	}
@@ -254,8 +256,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 	if tn.Sub(time.Unix(vkTs, 0)) > time.Hour*24 {
 		return &responseData{
 			Err: &responseErrData{
-				Code:        666,
-				Description: "Your vk_ts is expired, it was 24 hours ago",
+				ErrorCode: 666,
+				ErrorMsg:  "Your vk_ts is expired, it was 24 hours ago",
 			},
 		}
 	}
@@ -265,8 +267,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
-				Code:        666,
-				Description: "Unable to parse vk_user_id form url params",
+				ErrorCode: 666,
+				ErrorMsg:  "Unable to parse vk_user_id form url params",
 			},
 		}
 	}
@@ -276,8 +278,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 	if requesterVKUserID == reqData.VKUserID {
 		return &responseData{
 			Err: &responseErrData{
-				Code:        666,
-				Description: "You can't rate yourself",
+				ErrorCode: 666,
+				ErrorMsg:  "You can't rate yourself",
 			},
 		}
 	}
@@ -292,36 +294,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 	if genSign != reqData.URLParams.Sign {
 		return &responseData{
 			Err: &responseErrData{
-				Code:        666,
-				Description: "Sign/urlparams is not correct",
-			},
-		}
-	}
-
-	a := bytes.Split(ctx.Request.Header.Peek("X-Forwarded-For"), []byte(","))
-	remoteIP := strings.TrimSpace(string(a[len(a)-1]))
-
-	postArgs := ctx.PostArgs()
-	postArgs.Set("secret", reCaptchaSecret)
-	postArgs.Set("response", reqData.ReCaptchaToken)
-	postArgs.Set("remoteip", remoteIP)
-
-	_, body, err := fasthttpClient.Post(nil, "https://www.google.com/recaptcha/api/siteverify", postArgs)
-	if err != nil {
-		zap.L().Error(err.Error())
-		return &responseData{
-			Err: &responseErrData{
-				Code:        777,
-				Description: "Internal error",
-			},
-		}
-	}
-
-	if !jsoniter.Get(body, "success").ToBool() {
-		return &responseData{
-			Err: &responseErrData{
-				Code:        666,
-				Description: "Invalid ReCAPTCHA token",
+				ErrorCode: 666,
+				ErrorMsg:  "Sign/urlparams is not correct",
 			},
 		}
 	}
@@ -329,8 +303,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 	if reqData.Rate > 5 || reqData.Rate == 0 {
 		return &responseData{
 			Err: &responseErrData{
-				Code:        666,
-				Description: "Rate can only be 5, 3, 2 or 1",
+				ErrorCode: 666,
+				ErrorMsg:  "`rate` can only be 5, 3, 2 or 1",
 			},
 		}
 	}
@@ -345,8 +319,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
-				Code:        777,
-				Description: "Internal error",
+				ErrorCode: 777,
+				ErrorMsg:  "Internal error",
 			},
 		}
 	}
@@ -359,8 +333,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 			zap.L().Error(err.Error())
 			return &responseData{
 				Err: &responseErrData{
-					Code:        777,
-					Description: "Internal error",
+					ErrorCode: 777,
+					ErrorMsg:  "Internal error",
 				},
 			}
 		}
@@ -369,8 +343,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 	if remainingUserRates <= 0 {
 		return &responseData{
 			Err: &responseErrData{
-				Code:        98765,
-				Description: "You can rate only 9 times per 24 hours",
+				ErrorCode: 98765,
+				ErrorMsg:  "You can rate only 9 times per 24 hours",
 			},
 		}
 	}
@@ -385,8 +359,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
-				Code:        777,
-				Description: "Internal error",
+				ErrorCode: 777,
+				ErrorMsg:  "Internal error",
 			},
 		}
 	}
@@ -399,8 +373,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 			zap.L().Error(err.Error())
 			return &responseData{
 				Err: &responseErrData{
-					Code:        777,
-					Description: "Internal error",
+					ErrorCode: 777,
+					ErrorMsg:  "Internal error",
 				},
 			}
 		}
@@ -409,8 +383,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 	if remainingUserTargetRates <= 0 {
 		return &responseData{
 			Err: &responseErrData{
-				Code:        4321,
-				Description: "You can rate one user only 2 times per 24 hours",
+				ErrorCode: 4321,
+				ErrorMsg:  "You can rate one user only 2 times per 24 hours",
 			},
 		}
 	}
@@ -434,8 +408,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
-				Code:        777,
-				Description: "Internal error",
+				ErrorCode: 777,
+				ErrorMsg:  "Internal error",
 			},
 		}
 	}
@@ -445,8 +419,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
-				Code:        777,
-				Description: "Internal error",
+				ErrorCode: 777,
+				ErrorMsg:  "Internal error",
 			},
 		}
 	}
@@ -456,15 +430,50 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
-				Code:        777,
-				Description: "Internal error",
+				ErrorCode: 777,
+				ErrorMsg:  "Internal error",
 			},
 		}
 	}
 
 	return &responseData{
-		Data: &postRatingResData{
+		Response: &postRatingResData{
 			Success: true,
 		},
 	}
+}
+
+type vkUsersGetReqData struct {
+	UserIDs string `json:"user_ids"`
+}
+
+func handleVKUsersGet(ctx *fasthttp.RequestCtx) (response *responseData) {
+	reqData := new(vkUsersGetReqData)
+	err := jsoniter.Unmarshal(ctx.Request.Body(), reqData)
+	if err != nil {
+		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				ErrorCode: 1234,
+				ErrorMsg:  "Error occured while unmarshall your json",
+			},
+		}
+	}
+
+	_, body, err := fasthttpClient.Get(nil, "https://api.vk.com/method/users.get?v=5.126&access_token="+vkServiceKey+"&user_ids="+url.QueryEscape(reqData.UserIDs)+"&fields=photo_200,screen_name")
+
+	if err != nil {
+		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				ErrorCode: 777,
+				ErrorMsg:  "Error occured while doing request to VK api",
+			},
+		}
+	}
+
+	ctx.SetContentType("application/json; charset=utf8")
+	ctx.SetBody(body)
+
+	return nil
 }
