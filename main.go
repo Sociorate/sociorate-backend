@@ -235,7 +235,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 1234,
-				ErrorMsg:  "Malformed url params",
+				ErrorMsg:  "Malformed `url_params`",
 			},
 		}
 	}
@@ -444,7 +444,11 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 }
 
 type vkUsersGetReqData struct {
-	UserIDs string `json:"user_ids"`
+	UserIDs   string `json:"user_ids"`
+	URLParams struct {
+		Params string `json:"params"`
+		Sign   string `json:"sign"`
+	} `json:"url_params"`
 }
 
 func handleVKUsersGet(ctx *fasthttp.RequestCtx) (response *responseData) {
@@ -456,6 +460,55 @@ func handleVKUsersGet(ctx *fasthttp.RequestCtx) (response *responseData) {
 			Err: &responseErrData{
 				ErrorCode: 1234,
 				ErrorMsg:  "Error occured while unmarshall your json",
+			},
+		}
+	}
+
+	u, err := url.Parse("?" + reqData.URLParams.Params)
+	if err != nil {
+		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				ErrorCode: 1234,
+				ErrorMsg:  "Malformed `url_params`",
+			},
+		}
+	}
+
+	vkTs, err := strconv.ParseInt(u.Query().Get("vk_ts"), 10, 64)
+	if err != nil {
+		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				ErrorCode: 666,
+				ErrorMsg:  "Unable to parse vk_user_id form url params",
+			},
+		}
+	}
+
+	tn := time.Now()
+
+	if tn.Sub(time.Unix(vkTs, 0)) > time.Hour*24 {
+		return &responseData{
+			Err: &responseErrData{
+				ErrorCode: 666,
+				ErrorMsg:  "Your vk_ts is expired, it was 24 hours ago",
+			},
+		}
+	}
+
+	h := hmac.New(sha256.New, vkSecretKey)
+	h.Write([]byte(reqData.URLParams.Params))
+
+	genSign := base64.RawStdEncoding.EncodeToString(h.Sum(nil))
+	genSign = strings.ReplaceAll(genSign, "+", "-")
+	genSign = strings.ReplaceAll(genSign, "/", "_")
+
+	if genSign != reqData.URLParams.Sign {
+		return &responseData{
+			Err: &responseErrData{
+				ErrorCode: 666,
+				ErrorMsg:  "Sign/urlparams is not correct",
 			},
 		}
 	}
