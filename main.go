@@ -187,6 +187,8 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 
 	err = dbconn.QueryRow(ctx, "SELECT rating_count_5, rating_count_4, rating_count_3, rating_count_2, rating_count_1 FROM users WHERE vk_user_id = $1", reqData.VKUserID).Scan(&ratingCounts[4], &ratingCounts[3], &ratingCounts[2], &ratingCounts[1], &ratingCounts[0])
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		// FIXME: удалить после решения ошибки с conn busy
+		defer panic(err)
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
@@ -316,6 +318,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 
 	err = dbconn.QueryRow(ctx, "SELECT remaining_user_rates, user_rates_restore_time FROM users WHERE vk_user_id = $1;", requesterVKUserID).Scan(&remainingUserRates, &userRatesRestoreTime)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		// FIXME: удалить после решения ошибки с conn busy
+		defer panic(err)
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
@@ -330,6 +334,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 
 		_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, remaining_user_rates, user_rates_restore_time) VALUES ($1, 9, NOW() + INTERVAL '1 DAY') ON CONFLICT (vk_user_id) DO UPDATE SET remaining_user_rates = EXCLUDED.remaining_user_rates, user_rates_restore_time = EXCLUDED.user_rates_restore_time;", requesterVKUserID)
 		if err != nil {
+			// FIXME: удалить после решения ошибки с conn busy
+			defer panic(err)
 			zap.L().Error(err.Error())
 			return &responseData{
 				Err: &responseErrData{
@@ -356,6 +362,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 
 	err = dbconn.QueryRow(ctx, "SELECT remaining_user_target_rates, user_target_rates_restore_time FROM user_rates_times WHERE (vk_user_id = $1 AND target_vk_user_id = $2);", requesterVKUserID, reqData.VKUserID).Scan(&remainingUserTargetRates, &userTargetRatesRestoreTime)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		// FIXME: удалить после решения ошибки с conn busy
+		defer panic(err)
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
@@ -370,6 +378,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 
 		_, err = dbconn.Exec(ctx, "INSERT INTO user_rates_times (vk_user_id, target_vk_user_id, remaining_user_target_rates, user_target_rates_restore_time) VALUES ($1, $2, 2, NOW() + INTERVAL '1 DAY') ON CONFLICT (vk_user_id, target_vk_user_id) DO UPDATE SET remaining_user_target_rates = EXCLUDED.remaining_user_target_rates, user_target_rates_restore_time = EXCLUDED.user_target_rates_restore_time;", requesterVKUserID, reqData.VKUserID)
 		if err != nil {
+			// FIXME: удалить после решения ошибки с conn busy
+			defer panic(err)
 			zap.L().Error(err.Error())
 			return &responseData{
 				Err: &responseErrData{
@@ -405,6 +415,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 
 	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, "+ratingCountColumnName+") VALUES ($1, 1) ON CONFLICT (vk_user_id) DO UPDATE SET "+ratingCountColumnName+" = (SELECT "+ratingCountColumnName+" FROM users WHERE vk_user_id = $1) + 1;", reqData.VKUserID)
 	if err != nil {
+		// FIXME: удалить после решения ошибки с conn busy
+		defer panic(err)
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
@@ -416,6 +428,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 
 	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, remaining_user_rates) VALUES ($1, 8) ON CONFLICT (vk_user_id) DO UPDATE SET remaining_user_rates = (SELECT remaining_user_rates FROM users WHERE vk_user_id = $1) - 1;", requesterVKUserID)
 	if err != nil {
+		// FIXME: удалить после решения ошибки с conn busy
+		defer panic(err)
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
@@ -427,6 +441,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 
 	_, err = dbconn.Exec(ctx, "INSERT INTO user_rates_times (vk_user_id, target_vk_user_id, remaining_user_target_rates) VALUES ($1, $2, 1) ON CONFLICT (vk_user_id, target_vk_user_id) DO UPDATE SET remaining_user_target_rates = (SELECT remaining_user_target_rates FROM user_rates_times WHERE (vk_user_id = $1 AND target_vk_user_id = $2)) - 1;", requesterVKUserID, reqData.VKUserID)
 	if err != nil {
+		// FIXME: удалить после решения ошибки с conn busy
+		defer panic(err)
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
