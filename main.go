@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v4/pgxpool"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
@@ -82,17 +83,12 @@ const sqlCreateTableUserRatesTimes = `CREATE TABLE IF NOT EXISTS user_rates_time
 	PRIMARY KEY (vk_user_id, target_vk_user_id)
 );`
 
-func main() {
-	zap.L().Info("Starting...")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	dbconn, err := pgx.Connect(ctx, os.Getenv("DATABASE_URL"))
+func initDatabase(ctx context.Context, dbpool *pgxpool.Pool) {
+	dbconn, err := dbpool.Acquire(ctx)
 	if err != nil {
 		panic(err)
 	}
-	defer dbconn.Close(ctx)
+	defer dbconn.Release()
 
 	_, err = dbconn.Exec(ctx, sqlCreateTableUsers)
 	if err != nil {
@@ -102,11 +98,26 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func main() {
+	zap.L().Info("Starting...")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dbpool, err := pgxpool.Connect(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		panic(err)
+	}
+	defer dbpool.Close()
+
+	initDatabase(ctx, dbpool)
 
 	s := &fasthttp.Server{
 		Handler: fasthttp.TimeoutHandler(
 			func(ctx *fasthttp.RequestCtx) {
-				handleRequest(ctx, dbconn)
+				handleRequest(ctx, dbpool)
 			},
 			time.Second*6,
 			`{"error":{"error_code":777,"error_msg":"Internal error"}`,
@@ -123,7 +134,7 @@ func main() {
 	}
 }
 
-func handleRequest(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) {
+func handleRequest(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) {
 	zap.L().Info(ctx.String())
 
 	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
@@ -132,9 +143,9 @@ func handleRequest(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) {
 
 	switch string(ctx.URI().Path()) {
 	case "/get_rating":
-		response = handleGetRating(ctx, dbconn)
+		response = handleGetRating(ctx, dbpool)
 	case "/post_rating":
-		response = handlePostRating(ctx, dbconn)
+		response = handlePostRating(ctx, dbpool)
 	case "/vk_users_get":
 		response = handleVKUsersGet(ctx)
 	}
@@ -175,7 +186,7 @@ type getRatingResData struct {
 	RatingCounts [5]uint32 `json:"rating_counts"`
 }
 
-func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *responseData) {
+func handleGetRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response *responseData) {
 	reqData := new(getRatingReqData)
 	err := jsoniter.Unmarshal(ctx.Request.Body(), reqData)
 	if err != nil {
@@ -190,7 +201,7 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *resp
 
 	ratingCounts := [5]uint32{}
 
-	err = dbconn.QueryRow(ctx, "SELECT rating_count_5, rating_count_4, rating_count_3, rating_count_2, rating_count_1 FROM users WHERE vk_user_id = $1", reqData.VKUserID).Scan(&ratingCounts[4], &ratingCounts[3], &ratingCounts[2], &ratingCounts[1], &ratingCounts[0])
+	err = dbpool.QueryRow(ctx, "SELECT rating_count_5, rating_count_4, rating_count_3, rating_count_2, rating_count_1 FROM users WHERE vk_user_id = $1", reqData.VKUserID).Scan(&ratingCounts[4], &ratingCounts[3], &ratingCounts[2], &ratingCounts[1], &ratingCounts[0])
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		// FIXME: удалить после решения ошибки с conn busy
 		defer panic(err)
@@ -223,7 +234,7 @@ type postRatingResData struct {
 	Success bool `json:"ok"`
 }
 
-func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *responseData) {
+func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response *responseData) {
 	reqData := new(postRatingReqData)
 	err := jsoniter.Unmarshal(ctx.Request.Body(), reqData)
 	if err != nil {
@@ -315,6 +326,20 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbconn *pgx.Conn) (response *res
 			},
 		}
 	}
+
+	dbconn, err := dbpool.Acquire(ctx)
+	if err != nil {
+		// FIXME: удалить после решения ошибки с conn busy
+		defer panic(err)
+		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				ErrorCode: 777,
+				ErrorMsg:  "Internal error",
+			},
+		}
+	}
+	defer dbconn.Release()
 
 	var (
 		remainingUserRates   int16
