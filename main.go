@@ -104,9 +104,14 @@ func main() {
 	}
 
 	s := &fasthttp.Server{
-		Handler: func(ctx *fasthttp.RequestCtx) {
-			handleRequest(ctx, dbconn)
-		},
+		Handler: fasthttp.TimeoutHandler(
+			func(ctx *fasthttp.RequestCtx) {
+				handleRequest(ctx, dbconn)
+			},
+			time.Second*6,
+			`{"error":{"error_code":777,"error_msg":"Internal error"}`,
+		),
+
 		NoDefaultServerHeader: true,
 	}
 
@@ -530,7 +535,7 @@ func handleVKUsersGet(ctx *fasthttp.RequestCtx) (response *responseData) {
 		}
 	}
 
-	_, body, err := fasthttpClient.Get(nil, "https://api.vk.com/method/users.get?v=5.126&access_token="+vkServiceKey+"&lang="+url.QueryEscape(reqData.Lang)+"&user_ids="+url.QueryEscape(reqData.UserIDs)+"&fields=photo_200,screen_name")
+	_, body, err := fasthttpClient.GetTimeout(nil, "https://api.vk.com/method/users.get?v=5.126&access_token="+vkServiceKey+"&lang="+url.QueryEscape(reqData.Lang)+"&user_ids="+url.QueryEscape(reqData.UserIDs)+"&fields=photo_200,screen_name", time.Second*5)
 
 	if err != nil {
 		zap.L().Error(err.Error())
