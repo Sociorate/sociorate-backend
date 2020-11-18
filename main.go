@@ -100,6 +100,12 @@ func initDatabase(ctx context.Context, dbpool *pgxpool.Pool) {
 	}
 }
 
+type fasthttpZapLogger struct{}
+
+func (fasthttpZapLogger) Printf(format string, args ...interface{}) {
+	zap.S().Infof(format, args...)
+}
+
 func main() {
 	zap.L().Info("Starting...")
 
@@ -119,11 +125,13 @@ func main() {
 			func(ctx *fasthttp.RequestCtx) {
 				handleRequest(ctx, dbpool)
 			},
-			time.Second*6,
+			time.Second*15,
 			`{"error":{"error_code":777,"error_msg":"Internal error"}`,
 		),
 
 		NoDefaultServerHeader: true,
+		MaxRequestBodySize:    1024,
+		Logger:                new(fasthttpZapLogger),
 	}
 
 	zap.L().Info("Listening and serving")
@@ -135,7 +143,15 @@ func main() {
 }
 
 func handleRequest(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) {
-	zap.L().Info(ctx.String())
+	zap.L().Info(
+		"Accepted request",
+		zap.Uint64("ConnID", ctx.ConnID()),
+		zap.Uint64("ID", ctx.ID()),
+		zap.ByteString("Method", ctx.Method()),
+		zap.ByteString("RequestURI", ctx.RequestURI()),
+		zap.ByteString("XForwardedForHeader", ctx.Request.Header.Peek("X-Forwarded-For")),
+		zap.ByteString("Body", ctx.Request.Body()),
+	)
 
 	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
 
