@@ -342,9 +342,25 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 		}
 	}
 
-	dbconn, err := dbpool.Acquire(ctx)
-	if err != nil {
+	dbtx, err := dbpool.BeginTx(ctx, pgx.TxOptions{
+		IsoLevel:       pgx.Serializable,
+		AccessMode:     pgx.ReadWrite,
+		DeferrableMode: pgx.NotDeferrable,
+	})
 
+	var deferredCommit = true
+	defer func() {
+		if !deferredCommit {
+			return
+		}
+
+		err := dbtx.Commit(ctx)
+		if err != nil {
+			zap.L().Error(err.Error())
+		}
+	}()
+
+	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
@@ -353,16 +369,14 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 			},
 		}
 	}
-	defer dbconn.Release()
 
 	var (
 		remainingUserRates   int16
 		userRatesRestoreTime time.Time
 	)
 
-	err = dbconn.QueryRow(ctx, "SELECT remaining_user_rates, user_rates_restore_time FROM users WHERE vk_user_id = $1;", requesterVKUserID).Scan(&remainingUserRates, &userRatesRestoreTime)
+	err = dbtx.QueryRow(ctx, "SELECT remaining_user_rates, user_rates_restore_time FROM users WHERE vk_user_id = $1;", requesterVKUserID).Scan(&remainingUserRates, &userRatesRestoreTime)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
@@ -375,7 +389,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 	if userRatesRestoreTime.Sub(tn) <= 0 {
 		remainingUserRates = 9
 
-		_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, remaining_user_rates, user_rates_restore_time) VALUES ($1, 9, NOW() + INTERVAL '1 DAY') ON CONFLICT (vk_user_id) DO UPDATE SET remaining_user_rates = EXCLUDED.remaining_user_rates, user_rates_restore_time = EXCLUDED.user_rates_restore_time;", requesterVKUserID)
+		_, err = dbtx.Exec(ctx, "INSERT INTO users (vk_user_id, remaining_user_rates, user_rates_restore_time) VALUES ($1, 9, NOW() + INTERVAL '1 DAY') ON CONFLICT (vk_user_id) DO UPDATE SET remaining_user_rates = EXCLUDED.remaining_user_rates, user_rates_restore_time = EXCLUDED.user_rates_restore_time;", requesterVKUserID)
 		if err != nil {
 			zap.L().Error(err.Error())
 			return &responseData{
@@ -401,7 +415,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 		userTargetRatesRestoreTime time.Time
 	)
 
-	err = dbconn.QueryRow(ctx, "SELECT remaining_user_target_rates, user_target_rates_restore_time FROM user_rates_times WHERE (vk_user_id = $1 AND target_vk_user_id = $2);", requesterVKUserID, reqData.VKUserID).Scan(&remainingUserTargetRates, &userTargetRatesRestoreTime)
+	err = dbtx.QueryRow(ctx, "SELECT remaining_user_target_rates, user_target_rates_restore_time FROM user_rates_times WHERE (vk_user_id = $1 AND target_vk_user_id = $2);", requesterVKUserID, reqData.VKUserID).Scan(&remainingUserTargetRates, &userTargetRatesRestoreTime)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		zap.L().Error(err.Error())
 		return &responseData{
@@ -415,7 +429,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 	if userTargetRatesRestoreTime.Sub(tn) <= 0 {
 		remainingUserTargetRates = 2
 
-		_, err = dbconn.Exec(ctx, "INSERT INTO user_rates_times (vk_user_id, target_vk_user_id, remaining_user_target_rates, user_target_rates_restore_time) VALUES ($1, $2, 2, NOW() + INTERVAL '1 DAY') ON CONFLICT (vk_user_id, target_vk_user_id) DO UPDATE SET remaining_user_target_rates = EXCLUDED.remaining_user_target_rates, user_target_rates_restore_time = EXCLUDED.user_target_rates_restore_time;", requesterVKUserID, reqData.VKUserID)
+		_, err = dbtx.Exec(ctx, "INSERT INTO user_rates_times (vk_user_id, target_vk_user_id, remaining_user_target_rates, user_target_rates_restore_time) VALUES ($1, $2, 2, NOW() + INTERVAL '1 DAY') ON CONFLICT (vk_user_id, target_vk_user_id) DO UPDATE SET remaining_user_target_rates = EXCLUDED.remaining_user_target_rates, user_target_rates_restore_time = EXCLUDED.user_target_rates_restore_time;", requesterVKUserID, reqData.VKUserID)
 		if err != nil {
 			zap.L().Error(err.Error())
 			return &responseData{
@@ -450,9 +464,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 		ratingCountColumnName = "rating_count_1"
 	}
 
-	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, "+ratingCountColumnName+") VALUES ($1, 1) ON CONFLICT (vk_user_id) DO UPDATE SET "+ratingCountColumnName+" = (SELECT "+ratingCountColumnName+" FROM users WHERE vk_user_id = $1) + 1;", reqData.VKUserID)
+	_, err = dbtx.Exec(ctx, "INSERT INTO users (vk_user_id, "+ratingCountColumnName+") VALUES ($1, 1) ON CONFLICT (vk_user_id) DO UPDATE SET "+ratingCountColumnName+" = (SELECT "+ratingCountColumnName+" FROM users WHERE vk_user_id = $1) + 1;", reqData.VKUserID)
 	if err != nil {
-
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
@@ -462,9 +475,8 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 		}
 	}
 
-	_, err = dbconn.Exec(ctx, "INSERT INTO users (vk_user_id, remaining_user_rates) VALUES ($1, 8) ON CONFLICT (vk_user_id) DO UPDATE SET remaining_user_rates = (SELECT remaining_user_rates FROM users WHERE vk_user_id = $1) - 1;", requesterVKUserID)
+	_, err = dbtx.Exec(ctx, "INSERT INTO users (vk_user_id, remaining_user_rates) VALUES ($1, 8) ON CONFLICT (vk_user_id) DO UPDATE SET remaining_user_rates = (SELECT remaining_user_rates FROM users WHERE vk_user_id = $1) - 1;", requesterVKUserID)
 	if err != nil {
-
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
@@ -474,9 +486,23 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 		}
 	}
 
-	_, err = dbconn.Exec(ctx, "INSERT INTO user_rates_times (vk_user_id, target_vk_user_id, remaining_user_target_rates) VALUES ($1, $2, 1) ON CONFLICT (vk_user_id, target_vk_user_id) DO UPDATE SET remaining_user_target_rates = (SELECT remaining_user_target_rates FROM user_rates_times WHERE (vk_user_id = $1 AND target_vk_user_id = $2)) - 1;", requesterVKUserID, reqData.VKUserID)
+	_, err = dbtx.Exec(ctx, "INSERT INTO user_rates_times (vk_user_id, target_vk_user_id, remaining_user_target_rates) VALUES ($1, $2, 1) ON CONFLICT (vk_user_id, target_vk_user_id) DO UPDATE SET remaining_user_target_rates = (SELECT remaining_user_target_rates FROM user_rates_times WHERE (vk_user_id = $1 AND target_vk_user_id = $2)) - 1;", requesterVKUserID, reqData.VKUserID)
 	if err != nil {
+		zap.L().Error(err.Error())
+		return &responseData{
+			Err: &responseErrData{
+				ErrorCode: 777,
+				ErrorMsg:  "Internal error",
+			},
+		}
+	}
 
+	deferredCommit = false
+
+	err = dbtx.Commit(ctx)
+	if err != nil {
+		// FIXME: убрать, если точно не будет проблем
+		defer panic(err)
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
