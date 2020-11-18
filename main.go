@@ -271,11 +271,11 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 
 	tn := time.Now()
 
-	if tn.Sub(time.Unix(vkTs, 0)) > time.Hour*24 {
+	if tn.Sub(time.Unix(vkTs, 0)) > time.Hour*2 {
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 666,
-				ErrorMsg:  "Your vk_ts is expired, it was 24 hours ago",
+				ErrorMsg:  "Your vk_ts is expired",
 			},
 		}
 	}
