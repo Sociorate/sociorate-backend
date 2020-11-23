@@ -356,8 +356,6 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 
 		err := dbtx.Commit(context.Background())
 		if err != nil {
-			// FIXME: убрать, если точно не будет проблем
-			defer panic(err)
 			zap.L().Error(err.Error())
 		}
 	}()
@@ -503,8 +501,6 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 
 	err = dbtx.Commit(ctx)
 	if err != nil {
-		// FIXME: убрать, если точно не будет проблем
-		defer panic(err)
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
