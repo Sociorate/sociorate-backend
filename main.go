@@ -239,7 +239,10 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response *
 type postRatingReqData struct {
 	VKUserID   uint32 `json:"vk_user_id"`
 	Rate       uint8  `json:"rate"`
-	SignParams string `json:"sign_params"`
+	SignParams struct {
+		Params string `json:"params"`
+		Sign   string `json:"sign"`
+	} `json:"sign_params"`
 }
 
 type postRatingResData struct {
@@ -259,13 +262,13 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 		}
 	}
 
-	u, err := url.Parse("?" + reqData.SignParams)
+	u, err := url.Parse("?" + reqData.SignParams.Params)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 1234,
-				ErrorMsg:  "Malformed `sign_params`",
+				ErrorMsg:  "Malformed `sign_params.params`",
 			},
 		}
 	}
@@ -278,7 +281,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 666,
-				ErrorMsg:  "Unable to parse `vk_user_id` form `sign_params`",
+				ErrorMsg:  "Unable to parse `vk_user_id` form `sign_params.params`",
 			},
 		}
 	}
@@ -300,7 +303,7 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 666,
-				ErrorMsg:  "Unable to parse `vk_user_id` form `sign_params`",
+				ErrorMsg:  "Unable to parse `vk_user_id` form `sign_params.params`",
 			},
 		}
 	}
@@ -317,17 +320,17 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 	}
 
 	h := hmac.New(sha256.New, vkSecretKey)
-	h.Write([]byte(reqData.SignParams))
+	h.Write([]byte(reqData.SignParams.Params))
 
 	genSign := base64.RawStdEncoding.EncodeToString(h.Sum(nil))
 	genSign = strings.ReplaceAll(genSign, "+", "-")
 	genSign = strings.ReplaceAll(genSign, "/", "_")
 
-	if genSign != signParamsParsed.Get("sign") {
+	if genSign != reqData.SignParams.Sign {
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 666,
-				ErrorMsg:  "Sign of `sign_params` is wrong",
+				ErrorMsg:  "`sign_params.sign` is wrong",
 			},
 		}
 	}
@@ -519,7 +522,10 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 type vkUsersGetReqData struct {
 	UserIDs    string `json:"user_ids"`
 	Lang       string `json:"lang"`
-	SignParams string `json:"sign_params"`
+	SignParams struct {
+		Params string `json:"params"`
+		Sign   string `json:"sign"`
+	} `json:"sign_params"`
 }
 
 func handleVKUsersGet(ctx *fasthttp.RequestCtx) (response *responseData) {
@@ -535,26 +541,24 @@ func handleVKUsersGet(ctx *fasthttp.RequestCtx) (response *responseData) {
 		}
 	}
 
-	u, err := url.Parse("?" + reqData.SignParams)
+	u, err := url.Parse("?" + reqData.SignParams.Params)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 1234,
-				ErrorMsg:  "Malformed `sign_params`",
+				ErrorMsg:  "Malformed `sign_params.params`",
 			},
 		}
 	}
 
-	signPramsParsed := u.Query()
-
-	vkTs, err := strconv.ParseInt(signPramsParsed.Get("vk_ts"), 10, 64)
+	vkTs, err := strconv.ParseInt(u.Query().Get("vk_ts"), 10, 64)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 666,
-				ErrorMsg:  "Unable to parse `vk_ts` form `sign_params`",
+				ErrorMsg:  "Unable to parse `vk_ts` form `sign_params.params`",
 			},
 		}
 	}
@@ -565,23 +569,23 @@ func handleVKUsersGet(ctx *fasthttp.RequestCtx) (response *responseData) {
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 666,
-				ErrorMsg:  "`vk_ts` from `sign_params` is expired, it was 24 hours ago",
+				ErrorMsg:  "`vk_ts` from `sign_params.params` is expired, it was 24 hours ago",
 			},
 		}
 	}
 
 	h := hmac.New(sha256.New, vkSecretKey)
-	h.Write([]byte(reqData.SignParams))
+	h.Write([]byte(reqData.SignParams.Params))
 
 	genSign := base64.RawStdEncoding.EncodeToString(h.Sum(nil))
 	genSign = strings.ReplaceAll(genSign, "+", "-")
 	genSign = strings.ReplaceAll(genSign, "/", "_")
 
-	if genSign != signPramsParsed.Get("sign") {
+	if genSign != reqData.SignParams.Sign {
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 666,
-				ErrorMsg:  "Sign of `sign_params` is not correct",
+				ErrorMsg:  "`sign_params.sign` is not correct",
 			},
 		}
 	}
