@@ -237,16 +237,13 @@ func handleGetRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response *
 }
 
 type postRatingReqData struct {
-	VKUserID  uint32 `json:"vk_user_id"`
-	Rate      uint8  `json:"rate"`
-	URLParams struct {
-		Params string `json:"params"`
-		Sign   string `json:"sign"`
-	} `json:"url_params"`
+	VKUserID   uint32 `json:"vk_user_id"`
+	Rate       uint8  `json:"rate"`
+	SignParams string `json:"sign_params"`
 }
 
 type postRatingResData struct {
-	Success bool `json:"ok"`
+	Success bool `json:"success"`
 }
 
 func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response *responseData) {
@@ -262,24 +259,26 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 		}
 	}
 
-	u, err := url.Parse("?" + reqData.URLParams.Params)
+	u, err := url.Parse("?" + reqData.SignParams)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 1234,
-				ErrorMsg:  "Malformed `url_params`",
+				ErrorMsg:  "Malformed `sign_params`",
 			},
 		}
 	}
 
-	vkTs, err := strconv.ParseInt(u.Query().Get("vk_ts"), 10, 64)
+	signParamsParsed := u.Query()
+
+	vkTs, err := strconv.ParseInt(signParamsParsed.Get("vk_ts"), 10, 64)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 666,
-				ErrorMsg:  "Unable to parse vk_user_id form url params",
+				ErrorMsg:  "Unable to parse `vk_user_id` form `sign_params`",
 			},
 		}
 	}
@@ -295,13 +294,13 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 		}
 	}
 
-	requesterVKUserID64, err := strconv.ParseUint(u.Query().Get("vk_user_id"), 10, 32)
+	requesterVKUserID64, err := strconv.ParseUint(signParamsParsed.Get("vk_user_id"), 10, 32)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 666,
-				ErrorMsg:  "Unable to parse vk_user_id form url params",
+				ErrorMsg:  "Unable to parse `vk_user_id` form `sign_params`",
 			},
 		}
 	}
@@ -318,17 +317,17 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 	}
 
 	h := hmac.New(sha256.New, vkSecretKey)
-	h.Write([]byte(reqData.URLParams.Params))
+	h.Write([]byte(reqData.SignParams))
 
 	genSign := base64.RawStdEncoding.EncodeToString(h.Sum(nil))
 	genSign = strings.ReplaceAll(genSign, "+", "-")
 	genSign = strings.ReplaceAll(genSign, "/", "_")
 
-	if genSign != reqData.URLParams.Sign {
+	if genSign != signParamsParsed.Get("sign") {
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 666,
-				ErrorMsg:  "Sign/urlparams is not correct",
+				ErrorMsg:  "Sign of `sign_params` is wrong",
 			},
 		}
 	}
@@ -518,12 +517,9 @@ func handlePostRating(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) (response 
 }
 
 type vkUsersGetReqData struct {
-	UserIDs   string `json:"user_ids"`
-	Lang      string `json:"lang"`
-	URLParams struct {
-		Params string `json:"params"`
-		Sign   string `json:"sign"`
-	} `json:"url_params"`
+	UserIDs    string `json:"user_ids"`
+	Lang       string `json:"lang"`
+	SignParams string `json:"sign_params"`
 }
 
 func handleVKUsersGet(ctx *fasthttp.RequestCtx) (response *responseData) {
@@ -539,24 +535,26 @@ func handleVKUsersGet(ctx *fasthttp.RequestCtx) (response *responseData) {
 		}
 	}
 
-	u, err := url.Parse("?" + reqData.URLParams.Params)
+	u, err := url.Parse("?" + reqData.SignParams)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 1234,
-				ErrorMsg:  "Malformed `url_params`",
+				ErrorMsg:  "Malformed `sign_params`",
 			},
 		}
 	}
 
-	vkTs, err := strconv.ParseInt(u.Query().Get("vk_ts"), 10, 64)
+	signPramsParsed := u.Query()
+
+	vkTs, err := strconv.ParseInt(signPramsParsed.Get("vk_ts"), 10, 64)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 666,
-				ErrorMsg:  "Unable to parse vk_user_id form url params",
+				ErrorMsg:  "Unable to parse `vk_ts` form `sign_params`",
 			},
 		}
 	}
@@ -567,23 +565,23 @@ func handleVKUsersGet(ctx *fasthttp.RequestCtx) (response *responseData) {
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 666,
-				ErrorMsg:  "Your vk_ts is expired, it was 24 hours ago",
+				ErrorMsg:  "`vk_ts` from `sign_params` is expired, it was 24 hours ago",
 			},
 		}
 	}
 
 	h := hmac.New(sha256.New, vkSecretKey)
-	h.Write([]byte(reqData.URLParams.Params))
+	h.Write([]byte(reqData.SignParams))
 
 	genSign := base64.RawStdEncoding.EncodeToString(h.Sum(nil))
 	genSign = strings.ReplaceAll(genSign, "+", "-")
 	genSign = strings.ReplaceAll(genSign, "/", "_")
 
-	if genSign != reqData.URLParams.Sign {
+	if genSign != signPramsParsed.Get("sign") {
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 666,
-				ErrorMsg:  "Sign/urlparams is not correct",
+				ErrorMsg:  "Sign of `sign_params` is not correct",
 			},
 		}
 	}
@@ -595,7 +593,7 @@ func handleVKUsersGet(ctx *fasthttp.RequestCtx) (response *responseData) {
 		return &responseData{
 			Err: &responseErrData{
 				ErrorCode: 777,
-				ErrorMsg:  "Error occured while doing request to VK api",
+				ErrorMsg:  "Error occured while doing request to VK API",
 			},
 		}
 	}
