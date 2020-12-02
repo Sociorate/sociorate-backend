@@ -50,7 +50,7 @@ func init() {
 			FunctionKey:    "function",
 			LineEnding:     zapcore.DefaultLineEnding,
 			EncodeLevel:    zapcore.LowercaseLevelEncoder,
-			EncodeTime:     zapcore.ISO8601TimeEncoder,
+			EncodeTime:     zapcore.RFC3339NanoTimeEncoder,
 			EncodeDuration: zapcore.NanosDurationEncoder,
 			EncodeCaller:   zapcore.ShortCallerEncoder,
 		},
@@ -129,10 +129,12 @@ func main() {
 			`{"error":{"error_code":777,"error_msg":"Internal error"}`,
 		),
 
-		NoDefaultServerHeader: true,
-		MaxRequestBodySize:    1024,
-		Logger:                new(fasthttpZapLogger),
-		ReduceMemoryUsage:     true,
+		NoDefaultServerHeader:        true,
+		MaxRequestBodySize:           1024,
+		Logger:                       new(fasthttpZapLogger),
+		ReduceMemoryUsage:            true,
+		DisablePreParseMultipartForm: true,
+		NoDefaultContentType:         true,
 	}
 
 	zap.L().Info("Listening and serving")
@@ -151,7 +153,7 @@ func handleRequest(ctx *fasthttp.RequestCtx, dbpool *pgxpool.Pool) {
 		zap.Uint64("id", ctx.ID()),
 		zap.ByteString("method", ctx.Method()),
 		zap.ByteString("request_uri", ctx.RequestURI()),
-		zap.ByteString("x_forwarded_for_header", ctx.Request.Header.Peek("X-Forwarded-For")),
+		zap.ByteString("xforwardedfor_header", ctx.Request.Header.Peek("X-Forwarded-For")),
 		zap.ByteString("body", ctx.Request.Body()),
 	)
 
