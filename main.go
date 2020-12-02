@@ -132,6 +132,7 @@ func main() {
 		NoDefaultServerHeader: true,
 		MaxRequestBodySize:    1024,
 		Logger:                new(fasthttpZapLogger),
+		ReduceMemoryUsage:     true,
 	}
 
 	zap.L().Info("Listening and serving")
